@@ -7,6 +7,8 @@ import { UsersModule } from './users/users.module';
 import { User } from './users/models/users.model';
 import { AddressModule } from './address/address.module';
 import { Address } from './address/address.model';
+import { Role } from './role/role.model';
+import { RoleModule } from './role/role/role.module';
 
 @Module({
   imports: [ConfigModule.forRoot({
@@ -19,12 +21,13 @@ import { Address } from './address/address.model';
     username: process.env.DB_USERNAME,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
-    models: [User, Address], // rejestracja modelu User
+    models: [User, Address, Role], // rejestracja modelu User
     autoLoadModels: true, // automatyczne ładowanie modeli
     synchronize: true, // synchronizacja bazy danych z modelami (nie zalecane w produkcji)
   }),
     UsersModule,
-    AddressModule],
+    AddressModule,
+  RoleModule],
   controllers: [AppController],
   providers: [AppService],
 })
