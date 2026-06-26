@@ -14,6 +14,8 @@ export class RoleDto {
 }
 export class CreateRoleDto extends RoleDto {}
 
+export class EditRoleDto extends RoleDto {}
+
 
 export class ReturnRoleDto extends RoleDto {
     @ApiProperty()

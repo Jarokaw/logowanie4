@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
-import { CreateRoleDto, ReturnRoleDto } from '../role.dto';
+import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { CreateRoleDto, EditRoleDto, ReturnRoleDto } from '../role.dto';
 import { RoleService } from './role.service';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
@@ -38,6 +38,19 @@ export class RoleController {
     async createRole(@Body() dto: CreateRoleDto): Promise<ReturnRoleDto> {
         return await this.roleService.createRole(dto);
     }
+
+    @Patch('/:id')
+    @ApiOperation({
+        summary: 'Change role'
+    })
+    @ApiResponse({
+        status: 201,
+        type: ReturnRoleDto
+    })
+    async updateRole(@Param('id') id: string, @Body() dto: EditRoleDto): Promise<ReturnRoleDto> {
+        return await this.roleService.updateRole(id, dto);
+    }
+
 
 
     
