@@ -18,6 +18,7 @@ export class AddressRepository {
         return await this.addressModel.findByPk(id);
     }
     async create(dto: CreateAddressDto): Promise<Address> {
+        console.log(dto);
         return await this.addressModel.create(dto);
     }
     async updateAddress(id:string, dto: EditAddressDto): Promise<Address> {

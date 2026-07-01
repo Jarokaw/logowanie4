@@ -2,6 +2,8 @@ import { Injectable } from "@nestjs/common";
 import { User } from "../models/users.model";
 import { InjectModel } from "@nestjs/sequelize";
 import { CreateUserDto, EditUserDto } from "../dto/users.dto";
+import { Address } from "src/address/address.model";
+import { Role } from "src/role/role.model";
 
 
 @Injectable()
@@ -13,7 +15,16 @@ export class UserRepository {
         return await this.userModel.findAll();
     }
     async findOne(id: string): Promise<User> {
-        return await this.userModel.findByPk();
+        return await this.userModel.findByPk(id, {
+            include: [
+                {
+                    model: Address
+                },
+                {
+                    model: Role
+                }
+            ]
+        });
     }
     async create(dto: CreateUserDto): Promise<User> {
         return await this.userModel.create(dto);

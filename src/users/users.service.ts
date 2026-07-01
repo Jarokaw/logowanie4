@@ -5,6 +5,7 @@ import { UserNameToShortException, UserNotFoundException } from './errors/users.
 import { InjectModel } from '@nestjs/sequelize';
 import { User } from './models/users.model';
 import { UserRepository } from './repositories/user.repositories';
+import { UserMapper } from './mappers/user.mapper';
 
 @Injectable()
 export class UsersService {
@@ -13,15 +14,16 @@ export class UsersService {
     async findAll(): Promise<ReturnUserDto[]> {
         try {
             const users: User[] = await this.userRepository.findAll();
-            return users;
+            return UserMapper.fromDoctoDtoList(users);
         }
          catch (error) {
         }
     }
     async findOne(id: string):Promise<ReturnUserDto> {
         try {
-            const user = await this.userRepository.findOne(id);
-            return user;
+            const user = await this.userRepository.findOne(id);           
+            console.log(user);
+            return UserMapper.fromDocToDto(user);
         } catch(error) {
             throw error;
         }

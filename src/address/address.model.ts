@@ -1,4 +1,6 @@
-import {  AllowNull, Column, DataType, Model, PrimaryKey, Table } from "sequelize-typescript";
+import { UUID } from "crypto";
+import {  AllowNull, BelongsTo, Column, DataType, Model, PrimaryKey, Table } from "sequelize-typescript";
+import { User } from "src/users/models/users.model";
 
 @Table({tableName: 'address'})
 export class Address extends Model<Address> {
@@ -34,10 +36,8 @@ export class Address extends Model<Address> {
     })
     declare apartmentNumber: string;
 
-    @Column({
-        type: DataType.STRING,
-        allowNull:false
-    })
     declare idUser: string;
+    @BelongsTo(() => User, 'idUser')
+    declare user: User;
 
 }

@@ -1,6 +1,8 @@
 import { ApiProperty } from "@nestjs/swagger";
 import { UserInterface } from "../interfarce/users.interface";
 import { IsString, Length } from "class-validator";
+import { ReturnAddressDto } from "src/address/address.dto";
+import { ReturnRoleDto } from "src/role/role.dto";
 
 export class UsersDto implements UserInterface {
    
@@ -26,4 +28,6 @@ export class ReturnUserDto  {
     @ApiProperty()
     @IsString()
     name: string;
+    address: ReturnAddressDto;
+    role: ReturnRoleDto[];
 }

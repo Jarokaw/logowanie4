@@ -1,5 +1,8 @@
+import { AddressMapper } from "src/address/address.mapper";
 import { ReturnUserDto } from "../dto/users.dto";
 import { User } from "../models/users.model";
+import { RoleMapper } from "src/role/mappers/role.mapper";
+
 
 
 export class UserMapper {
@@ -10,6 +13,8 @@ export class UserMapper {
         const returnUser: ReturnUserDto = {
             id: doc.id,
             name: doc.name,
+            address: AddressMapper.fromDocToDto(doc.address),
+            role: RoleMapper.fromDocToList(doc.role)
         };
         return returnUser;
     }
