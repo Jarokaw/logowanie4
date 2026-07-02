@@ -9,6 +9,9 @@ import { AddressModule } from './address/address.module';
 import { Address } from './address/address.model';
 import { Role } from './role/role.model';
 import { RoleModule } from './role/role/role.module';
+import { AuthController } from './auth/auth.controller';
+import { AuthService } from './auth/auth.service';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [ConfigModule.forRoot({
@@ -27,8 +30,9 @@ import { RoleModule } from './role/role/role.module';
   }),
     UsersModule,
     AddressModule,
-  RoleModule],
-  controllers: [AppController],
+  RoleModule,
+  AuthModule],
+  controllers: [AppController, AuthController],
   providers: [AppService],
 })
 export class AppModule {}

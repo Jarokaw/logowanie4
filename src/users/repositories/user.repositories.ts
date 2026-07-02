@@ -26,6 +26,21 @@ export class UserRepository {
             ]
         });
     }
+    
+    async findOneByName(name: string): Promise<User> {
+        return await this.userModel.findOne({
+            where: { name },
+            include: [
+                {
+                    model: Address
+                },
+                {
+                    model: Role
+                }
+            ]
+        });
+    }
+
     async create(dto: CreateUserDto): Promise<User> {
         return await this.userModel.create(dto);
     }

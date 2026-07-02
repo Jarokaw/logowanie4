@@ -6,6 +6,7 @@ import { InjectModel } from '@nestjs/sequelize';
 import { User } from './models/users.model';
 import { UserRepository } from './repositories/user.repositories';
 import { UserMapper } from './mappers/user.mapper';
+import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class UsersService {
@@ -28,9 +29,25 @@ export class UsersService {
             throw error;
         }
     }
+    async findOneByName(name: string):Promise<ReturnUserDto> {
+        try {
+            const user = await this.userRepository.findOneByName(name);
+            if (!user) {
+                throw new UserNotFoundException(name);
+            }
+            return UserMapper.fromDocToDto(user);
+        } catch(error){
+            console.log(error);
+            throw error
+        }
+    }
+
+    
+
     async createUser(dto: CreateUserDto):Promise<ReturnUserDto> {
         try {
-            const user = await this.userRepository.create(dto);
+            const hashed = await bcrypt.hash(dto.password, 10);
+            const user = await this.userRepository.create({ ...dto, password: hashed });
             return user;
         } catch (error) {
             throw error;

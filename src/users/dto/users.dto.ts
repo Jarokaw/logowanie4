@@ -10,6 +10,10 @@ export class UsersDto implements UserInterface {
     @IsString()
     @Length(3)  // walidacja długości nazwy użytkownika
     name: string;
+
+    @ApiProperty()
+    @IsString()
+    password: string;
 }   
 
 export class CreateUserDto extends UsersDto {}
@@ -21,13 +25,11 @@ export class EditUserDto {
     name: string;
 }
 
-export class ReturnUserDto  {
+export class ReturnUserDto extends UsersDto {
     @ApiProperty()
     @IsString()
     id: string;
-    @ApiProperty()
-    @IsString()
-    name: string;
+  
     address: ReturnAddressDto;
     role: ReturnRoleDto[];
 }

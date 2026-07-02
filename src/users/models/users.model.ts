@@ -20,6 +20,12 @@ export class User extends Model<User> {
      })
      declare name: string;
 
+     @Column({
+         type: DataType.STRING,
+         allowNull: false
+     })
+     declare password: string;
+
      @HasOne(() => Address, 'idUser')
      declare address: Address;
 

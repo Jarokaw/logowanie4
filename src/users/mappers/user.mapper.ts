@@ -14,7 +14,8 @@ export class UserMapper {
             id: doc.id,
             name: doc.name,
             address: AddressMapper.fromDocToDto(doc.address),
-            role: RoleMapper.fromDocToList(doc.role)
+            role: RoleMapper.fromDocToList(doc.role),
+            password: doc.password
         };
         return returnUser;
     }
