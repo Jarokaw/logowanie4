@@ -2,14 +2,17 @@ import { Body, Controller, Delete, Get, Param, Patch, Post,Put } from '@nestjs/c
 import { UsersService } from './users.service';
 import { UserInterface } from './interfarce/users.interface';
 import { CreateUserDto, DeleteUserDto, EditUserDto, ReturnUserDto, UsersDto } from './dto/users.dto';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Auth } from 'src/auth/auth.decorator';
 
 @Controller('users')
+@ApiBearerAuth('JWT-auth')
 @ApiTags('Users API')
 export class UsersController {
     constructor(private readonly usersService: UsersService) {}
 
     @Get()
+    @Auth()
     @ApiOperation({ summary: 'Get all users ' })
     @ApiResponse({ status: 201,
         type: ReturnUserDto,

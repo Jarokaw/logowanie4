@@ -16,18 +16,21 @@ export class AuthService {
         const user = await this.userService.findOneByName(name);
         if (!user) throw new UnauthorizedException('Invalid credentials');
         const match = await bcrypt.compare(password, user.password);
-        if (!match) throw new UnauthorizedException('Invalid credentials');
+        if (!match) throw new UnauthorizedException('Invalid credentials');        
         return user;
     }
 
     async login(dto: LoginDto) {
-        const user: ReturnUserDto = await this.validateUser(dto.name, dto.password);
-        const payload = { sub: user.id, name: user.name }
+        const user: ReturnUserDto = await this.validateUser(dto.name, dto.password);        
+        const payload = { sub: user.id, name: user.name }                   
         return {
             accessToken: this.jwtService.sign(payload, { expiresIn: '15m' }),
             refreshToken: this.jwtService.sign(payload, { expiresIn: '7d' })
         };
     };
+
+
+
 
     async refreshToken(token: string) {
         try {
