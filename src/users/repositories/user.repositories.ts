@@ -12,7 +12,18 @@ export class UserRepository {
         
     }
     async findAll(): Promise<User[]> {
-        return await this.userModel.findAll();
+        return await this.userModel.findAll(
+            {
+                include: [
+                    {
+                        model: Address
+                    },
+                    {
+                        model: Role
+                    }
+                ]
+            }
+        );
     }
     async findOne(id: string): Promise<User> {
         return await this.userModel.findByPk(id, {
