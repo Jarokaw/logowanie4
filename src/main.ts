@@ -6,9 +6,17 @@ import { ValidationPipe } from '@nestjs/common';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const allowedOrigins = [
+    'http://localhost:4200',
+    'http://localhost:4201',
+    'http://127.0.0.1:4200',
+    'http://127.0.0.1:4201',
+    'http://192.168.0.209:4200',
+    'http://192.168.0.209:4201',
+  ];
 
   app.enableCors({
-    origin: ['http://localhost:4200', 'http://192.168.0.209:4200'],
+    origin: allowedOrigins,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,

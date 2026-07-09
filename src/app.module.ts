@@ -12,6 +12,15 @@ import { RoleModule } from './role/role/role.module';
 import { AuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
 import { AuthModule } from './auth/auth.module';
+import { ScheduleModule } from './schedule/schedule.module';
+import { ScheduleAcademicGroup } from './schedule/models/schedule-academic-group.model';
+import { ScheduleClassType } from './schedule/models/schedule-class-type.model';
+import { ScheduleLesson } from './schedule/models/schedule-lesson.model';
+import { ScheduleLocation } from './schedule/models/schedule-location.model';
+import { ScheduleNote } from './schedule/models/schedule-note.model';
+import { ScheduleSubject } from './schedule/models/schedule-subject.model';
+import { ScheduleTeacherSubject } from './schedule/models/schedule-teacher-subject.model';
+import { ScheduleTeacher } from './schedule/models/schedule-teacher.model';
 
 @Module({
   imports: [ConfigModule.forRoot({
@@ -24,14 +33,27 @@ import { AuthModule } from './auth/auth.module';
     username: process.env.DB_USERNAME,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
-    models: [User, Address, Role], // rejestracja modelu User
+    models: [
+      User,
+      Address,
+      Role,
+      ScheduleSubject,
+      ScheduleTeacher,
+      ScheduleTeacherSubject,
+      ScheduleClassType,
+      ScheduleNote,
+      ScheduleLocation,
+      ScheduleAcademicGroup,
+      ScheduleLesson,
+    ], // rejestracja modeli
     autoLoadModels: true, // automatyczne ładowanie modeli
     synchronize: true, // synchronizacja bazy danych z modelami (nie zalecane w produkcji)
   }),
     UsersModule,
     AddressModule,
   RoleModule,
-  AuthModule],
+  AuthModule,
+  ScheduleModule],
   controllers: [AppController, AuthController],
   providers: [AppService],
 })
