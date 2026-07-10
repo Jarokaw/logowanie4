@@ -21,6 +21,7 @@ import {
   CreateScheduleTeacherDto,
   ScheduleLessonFilters,
   UpdateScheduleLessonDto,
+  UpdateScheduleTeacherDto,
 } from './dto/schedule.dto';
 import { ScheduleService } from './schedule.service';
 
@@ -96,6 +97,16 @@ export class ScheduleController {
   @Post('teachers')
   createTeacher(@Body() dto: CreateScheduleTeacherDto) {
     return this.scheduleService.createTeacher(dto);
+  }
+
+  @Put('teachers/:id')
+  updateTeacher(@Param('id') id: string, @Body() dto: UpdateScheduleTeacherDto) {
+    return this.scheduleService.updateTeacher(id, dto);
+  }
+
+  @Patch('teachers/:id')
+  patchTeacher(@Param('id') id: string, @Body() dto: UpdateScheduleTeacherDto) {
+    return this.scheduleService.updateTeacher(id, dto);
   }
 
   @Post('class-types')

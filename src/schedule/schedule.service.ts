@@ -16,6 +16,7 @@ import {
   CreateScheduleTeacherDto,
   ScheduleLessonFilters,
   UpdateScheduleLessonDto,
+  UpdateScheduleTeacherDto,
 } from './dto/schedule.dto';
 import {
   ScheduleAcademicGroup,
@@ -232,6 +233,16 @@ export class ScheduleService implements OnModuleInit {
 
   async createTeacher(dto: CreateScheduleTeacherDto) {
     return this.teacherModel.create(dto);
+  }
+
+  async updateTeacher(id: string, dto: UpdateScheduleTeacherDto) {
+    const teacher = await this.teacherModel.findByPk(id);
+    if (!teacher) {
+      throw new NotFoundException('Nie znaleziono wykładowcy.');
+    }
+
+    await teacher.update(dto);
+    return this.mapTeacher(teacher);
   }
 
   async createClassType(dto: CreateScheduleClassTypeDto) {

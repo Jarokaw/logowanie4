@@ -48,6 +48,30 @@ export class CreateScheduleTeacherDto {
   active?: boolean;
 }
 
+export class UpdateScheduleTeacherDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @Length(2, 80)
+  firstName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @Length(2, 100)
+  lastName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  active?: boolean;
+}
+
 export class CreateScheduleClassTypeDto {
   @ApiProperty()
   @IsString()
