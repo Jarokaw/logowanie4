@@ -117,6 +117,29 @@ export class CreateScheduleLocationDto {
   active?: boolean;
 }
 
+export class UpdateScheduleLocationDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @Length(1, 140)
+  name?: string;
+
+  @ApiPropertyOptional({ enum: ScheduleLocationType })
+  @IsOptional()
+  @IsEnum(ScheduleLocationType)
+  type?: ScheduleLocationType;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  parentId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  active?: boolean;
+}
+
 export class CreateScheduleAcademicGroupDto {
   @ApiProperty()
   @IsString()

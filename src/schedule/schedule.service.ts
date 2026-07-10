@@ -16,6 +16,7 @@ import {
   CreateScheduleTeacherDto,
   ScheduleLessonFilters,
   UpdateScheduleLessonDto,
+  UpdateScheduleLocationDto,
   UpdateScheduleTeacherDto,
 } from './dto/schedule.dto';
 import {
@@ -46,6 +47,8 @@ type LessonLike = Pick<
   | 'classTypeId'
   | 'noteId'
 >;
+
+type LocationLike = Pick<CreateScheduleLocationDto, 'name' | 'type' | 'parentId'>;
 
 @Injectable()
 export class ScheduleService implements OnModuleInit {
@@ -258,6 +261,23 @@ export class ScheduleService implements OnModuleInit {
     return this.locationModel.create(dto);
   }
 
+  async updateLocation(id: string, dto: UpdateScheduleLocationDto) {
+    const location = await this.locationModel.findByPk(id);
+    if (!location) {
+      throw new NotFoundException('Nie znaleziono lokalizacji.');
+    }
+
+    const nextLocation: LocationLike = {
+      name: dto.name ?? location.name,
+      type: dto.type ?? location.type,
+      parentId: dto.parentId ?? location.parentId ?? undefined,
+    };
+
+    await this.validateParentLocation(nextLocation);
+    await location.update(dto);
+    return location;
+  }
+
   async createGroup(dto: CreateScheduleAcademicGroupDto) {
     await this.validateParentGroup(dto);
     return this.groupModel.create(dto);
@@ -341,7 +361,7 @@ export class ScheduleService implements OnModuleInit {
     }
   }
 
-  private async validateParentLocation(dto: CreateScheduleLocationDto): Promise<void> {
+  private async validateParentLocation(dto: LocationLike): Promise<void> {
     if (dto.type === ScheduleLocationType.BUILDING && dto.parentId) {
       throw new ConflictException('Budynek nie może mieć budynku nadrzędnego.');
     }
