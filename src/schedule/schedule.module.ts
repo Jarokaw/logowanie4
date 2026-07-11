@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { SequelizeModule } from '@nestjs/sequelize';
 import { ScheduleAcademicGroup } from './models/schedule-academic-group.model';
+import { ScheduleAcademicYear } from './models/schedule-academic-year.model';
 import { ScheduleClassType } from './models/schedule-class-type.model';
 import { ScheduleLesson } from './models/schedule-lesson.model';
 import { ScheduleLocation } from './models/schedule-location.model';
@@ -21,6 +22,7 @@ import { ScheduleService } from './schedule.service';
       ScheduleNote,
       ScheduleLocation,
       ScheduleAcademicGroup,
+      ScheduleAcademicYear,
       ScheduleLesson,
     ]),
   ],

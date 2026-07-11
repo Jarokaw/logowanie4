@@ -8,6 +8,7 @@ import {
   IsString,
   IsUUID,
   Length,
+  Matches,
   Max,
   Min,
 } from 'class-validator';
@@ -19,6 +20,46 @@ export class CreateScheduleSubjectDto {
   @IsString()
   @Length(2, 160)
   name: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  active?: boolean;
+}
+
+export class UpdateScheduleSubjectDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @Length(2, 160)
+  name?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  active?: boolean;
+}
+
+export class CreateScheduleAcademicYearDto {
+  @ApiProperty()
+  @IsString()
+  @Length(2, 63)
+  @Matches(/^[A-Za-z0-9_]+$/)
+  name: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  active?: boolean;
+}
+
+export class UpdateScheduleAcademicYearDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @Length(2, 63)
+  @Matches(/^[A-Za-z0-9_]+$/)
+  name?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -84,11 +125,37 @@ export class CreateScheduleClassTypeDto {
   active?: boolean;
 }
 
+export class UpdateScheduleClassTypeDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @Length(2, 80)
+  name?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  active?: boolean;
+}
+
 export class CreateScheduleNoteDto {
   @ApiProperty()
   @IsString()
-  @Length(2, 160)
+  @Length(2, 200)
   text: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  active?: boolean;
+}
+
+export class UpdateScheduleNoteDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @Length(2, 200)
+  text?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -154,6 +221,19 @@ export class CreateScheduleAcademicGroupDto {
   @IsOptional()
   @IsUUID()
   parentId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  active?: boolean;
+}
+
+export class UpdateScheduleAcademicGroupDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @Length(2, 220)
+  name?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

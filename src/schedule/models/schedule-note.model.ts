@@ -13,7 +13,7 @@ export class ScheduleNote extends Model<ScheduleNote> {
   declare id: string;
 
   @Column({
-    type: DataType.STRING(160),
+    type: DataType.STRING(200),
     allowNull: false,
   })
   declare text: string;

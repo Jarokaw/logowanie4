@@ -14,6 +14,7 @@ import { AuthService } from './auth/auth.service';
 import { AuthModule } from './auth/auth.module';
 import { ScheduleModule } from './schedule/schedule.module';
 import { ScheduleAcademicGroup } from './schedule/models/schedule-academic-group.model';
+import { ScheduleAcademicYear } from './schedule/models/schedule-academic-year.model';
 import { ScheduleClassType } from './schedule/models/schedule-class-type.model';
 import { ScheduleLesson } from './schedule/models/schedule-lesson.model';
 import { ScheduleLocation } from './schedule/models/schedule-location.model';
@@ -44,6 +45,7 @@ import { ScheduleTeacher } from './schedule/models/schedule-teacher.model';
       ScheduleNote,
       ScheduleLocation,
       ScheduleAcademicGroup,
+      ScheduleAcademicYear,
       ScheduleLesson,
     ], // rejestracja modeli
     autoLoadModels: true, // automatyczne ładowanie modeli

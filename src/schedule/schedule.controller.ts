@@ -13,6 +13,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Auth } from 'src/auth/auth.decorator';
 import {
   CreateScheduleAcademicGroupDto,
+  CreateScheduleAcademicYearDto,
   CreateScheduleClassTypeDto,
   CreateScheduleLessonDto,
   CreateScheduleLocationDto,
@@ -20,8 +21,13 @@ import {
   CreateScheduleSubjectDto,
   CreateScheduleTeacherDto,
   ScheduleLessonFilters,
+  UpdateScheduleAcademicGroupDto,
+  UpdateScheduleAcademicYearDto,
+  UpdateScheduleClassTypeDto,
   UpdateScheduleLessonDto,
   UpdateScheduleLocationDto,
+  UpdateScheduleNoteDto,
+  UpdateScheduleSubjectDto,
   UpdateScheduleTeacherDto,
 } from './dto/schedule.dto';
 import { ScheduleService } from './schedule.service';
@@ -49,6 +55,12 @@ export class ScheduleController {
   @ApiOperation({ summary: 'Get subjects, optionally assigned to teacher' })
   findSubjects(@Query('teacherId') teacherId?: string) {
     return this.scheduleService.findSubjects(teacherId);
+  }
+
+  @Get('academic-years')
+  @ApiOperation({ summary: 'Get academic years' })
+  findAcademicYears() {
+    return this.scheduleService.findAcademicYears();
   }
 
   @Get('rooms')
@@ -95,6 +107,41 @@ export class ScheduleController {
     return this.scheduleService.createSubject(dto);
   }
 
+  @Put('subjects/:id')
+  updateSubject(@Param('id') id: string, @Body() dto: UpdateScheduleSubjectDto) {
+    return this.scheduleService.updateSubject(id, dto);
+  }
+
+  @Patch('subjects/:id')
+  patchSubject(@Param('id') id: string, @Body() dto: UpdateScheduleSubjectDto) {
+    return this.scheduleService.updateSubject(id, dto);
+  }
+
+  @Post('academic-years')
+  createAcademicYear(@Body() dto: CreateScheduleAcademicYearDto) {
+    return this.scheduleService.createAcademicYear(dto);
+  }
+
+  @Patch('academic-years/:id/active-designer')
+  activateAcademicYearForDesigner(@Param('id') id: string) {
+    return this.scheduleService.activateAcademicYearForDesigner(id);
+  }
+
+  @Patch('academic-years/:id/active-student')
+  activateAcademicYearForStudent(@Param('id') id: string) {
+    return this.scheduleService.activateAcademicYearForStudent(id);
+  }
+
+  @Put('academic-years/:id')
+  updateAcademicYear(@Param('id') id: string, @Body() dto: UpdateScheduleAcademicYearDto) {
+    return this.scheduleService.updateAcademicYear(id, dto);
+  }
+
+  @Patch('academic-years/:id')
+  patchAcademicYear(@Param('id') id: string, @Body() dto: UpdateScheduleAcademicYearDto) {
+    return this.scheduleService.updateAcademicYear(id, dto);
+  }
+
   @Post('teachers')
   createTeacher(@Body() dto: CreateScheduleTeacherDto) {
     return this.scheduleService.createTeacher(dto);
@@ -115,9 +162,29 @@ export class ScheduleController {
     return this.scheduleService.createClassType(dto);
   }
 
+  @Put('class-types/:id')
+  updateClassType(@Param('id') id: string, @Body() dto: UpdateScheduleClassTypeDto) {
+    return this.scheduleService.updateClassType(id, dto);
+  }
+
+  @Patch('class-types/:id')
+  patchClassType(@Param('id') id: string, @Body() dto: UpdateScheduleClassTypeDto) {
+    return this.scheduleService.updateClassType(id, dto);
+  }
+
   @Post('notes')
   createNote(@Body() dto: CreateScheduleNoteDto) {
     return this.scheduleService.createNote(dto);
+  }
+
+  @Put('notes/:id')
+  updateNote(@Param('id') id: string, @Body() dto: UpdateScheduleNoteDto) {
+    return this.scheduleService.updateNote(id, dto);
+  }
+
+  @Patch('notes/:id')
+  patchNote(@Param('id') id: string, @Body() dto: UpdateScheduleNoteDto) {
+    return this.scheduleService.updateNote(id, dto);
   }
 
   @Post('locations')
@@ -138,6 +205,16 @@ export class ScheduleController {
   @Post('groups')
   createGroup(@Body() dto: CreateScheduleAcademicGroupDto) {
     return this.scheduleService.createGroup(dto);
+  }
+
+  @Put('groups/:id')
+  updateGroup(@Param('id') id: string, @Body() dto: UpdateScheduleAcademicGroupDto) {
+    return this.scheduleService.updateGroup(id, dto);
+  }
+
+  @Patch('groups/:id')
+  patchGroup(@Param('id') id: string, @Body() dto: UpdateScheduleAcademicGroupDto) {
+    return this.scheduleService.updateGroup(id, dto);
   }
 
   @Post('lessons')

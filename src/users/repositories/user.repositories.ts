@@ -4,6 +4,7 @@ import { InjectModel } from "@nestjs/sequelize";
 import { CreateUserDto, EditUserDto } from "../dto/users.dto";
 import { Address } from "src/address/address.model";
 import { Role } from "src/role/role.model";
+import { Op } from "sequelize";
 
 
 @Injectable()
@@ -40,7 +41,11 @@ export class UserRepository {
     
     async findOneByName(name: string): Promise<User> {
         return await this.userModel.findOne({
-            where: { name },
+            where: {
+                name: {
+                    [Op.iLike]: name
+                }
+            },
             include: [
                 {
                     model: Address
