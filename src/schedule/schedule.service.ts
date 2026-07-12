@@ -15,6 +15,8 @@ import {
   CreateScheduleLessonDto,
   CreateScheduleLocationDto,
   CreateScheduleNoteDto,
+  CreateScheduleStudyTrackDto,
+  CreateScheduleStudyTrackSpecializationDto,
   CreateScheduleSubjectDto,
   CreateScheduleTeacherDto,
   ScheduleLessonFilters,
@@ -24,12 +26,14 @@ import {
   UpdateScheduleLessonDto,
   UpdateScheduleLocationDto,
   UpdateScheduleNoteDto,
+  UpdateScheduleStudyTrackDto,
   UpdateScheduleSubjectDto,
   UpdateScheduleTeacherDto,
 } from './dto/schedule.dto';
 import {
   ScheduleAcademicGroup,
   ScheduleGroupLevel,
+  ScheduleStudyMode,
 } from './models/schedule-academic-group.model';
 import { ScheduleAcademicYear } from './models/schedule-academic-year.model';
 import { ScheduleClassType } from './models/schedule-class-type.model';
@@ -38,6 +42,8 @@ import {
   ScheduleLocationType,
 } from './models/schedule-location.model';
 import { ScheduleNote } from './models/schedule-note.model';
+import { ScheduleStudyTrack } from './models/schedule-study-track.model';
+import { ScheduleStudyTrackSpecialization } from './models/schedule-study-track-specialization.model';
 import { ScheduleLesson } from './models/schedule-lesson.model';
 import { ScheduleSubject } from './models/schedule-subject.model';
 import { ScheduleTeacherSubject } from './models/schedule-teacher-subject.model';
@@ -59,6 +65,7 @@ type LessonLike = Pick<
 
 type LocationLike = Pick<CreateScheduleLocationDto, 'name' | 'type' | 'parentId'>;
 type AcademicGroupLike = Pick<CreateScheduleAcademicGroupDto, 'name' | 'level' | 'parentId'>;
+type StudyTrackLike = Pick<CreateScheduleStudyTrackDto, 'name' | 'courseId'>;
 type ScheduleDatabaseModels = {
   subjectModel: any;
   teacherModel: any;
@@ -67,6 +74,8 @@ type ScheduleDatabaseModels = {
   noteModel: any;
   locationModel: any;
   groupModel: any;
+  studyTrackModel: any;
+  studyTrackSpecializationModel: any;
   lessonModel: any;
 };
 
@@ -97,6 +106,10 @@ export class ScheduleService implements OnModuleInit {
     private readonly locationModel: typeof ScheduleLocation,
     @InjectModel(ScheduleAcademicGroup)
     private readonly groupModel: typeof ScheduleAcademicGroup,
+    @InjectModel(ScheduleStudyTrack)
+    private readonly studyTrackModel: typeof ScheduleStudyTrack,
+    @InjectModel(ScheduleStudyTrackSpecialization)
+    private readonly studyTrackSpecializationModel: typeof ScheduleStudyTrackSpecialization,
     @InjectModel(ScheduleAcademicYear)
     private readonly academicYearModel: typeof ScheduleAcademicYear,
     @InjectModel(ScheduleLesson)
@@ -105,6 +118,7 @@ export class ScheduleService implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     await this.ensureAcademicYearActivityColumns();
+    await this.ensureScheduleAcademicGroupStudyModeColumn(this.sequelize);
     await this.seedDefaultDictionaries();
   }
 
@@ -117,6 +131,8 @@ export class ScheduleService implements OnModuleInit {
       notes,
       locations,
       groups,
+      studyTracks,
+      studyTrackSpecializations,
       academicYears,
     ] = await Promise.all([
       models.subjectModel.findAll({ where: { active: true }, order: [['name', 'ASC']] }),
@@ -131,6 +147,12 @@ export class ScheduleService implements OnModuleInit {
       models.noteModel.findAll({ where: { active: true }, order: [['text', 'ASC']] }),
       models.locationModel.findAll({ where: { active: true }, order: [['name', 'ASC']] }),
       models.groupModel.findAll({ where: { active: true }, order: [['name', 'ASC']] }),
+      models.studyTrackModel.findAll({ where: { active: true }, order: [['name', 'ASC']] }),
+      models.studyTrackSpecializationModel.findAll({
+        where: { active: true },
+        include: [{ model: models.groupModel, as: 'specialization' }],
+        order: [['createdAt', 'ASC']],
+      }),
       this.academicYearModel.findAll({ where: { active: true }, order: [['name', 'ASC']] }),
     ]);
 
@@ -142,6 +164,8 @@ export class ScheduleService implements OnModuleInit {
       buildings: locations.filter((location) => location.type === ScheduleLocationType.BUILDING),
       rooms: locations.filter((location) => location.type === ScheduleLocationType.ROOM),
       groups,
+      studyTracks,
+      studyTrackSpecializations,
       academicYears,
       timeSlots: {
         hours: this.range(6, 22),
@@ -188,6 +212,31 @@ export class ScheduleService implements OnModuleInit {
     return this.academicYearModel.findAll({
       where: { active: true },
       order: [['name', 'ASC']],
+    });
+  }
+
+  async findStudyTracks(courseId?: string): Promise<ScheduleStudyTrack[]> {
+    const models = await this.getScheduleModels();
+    const where: any = { active: true };
+    if (courseId) {
+      where.courseId = courseId;
+    }
+
+    return models.studyTrackModel.findAll({
+      where,
+      include: [{ model: models.groupModel, as: 'course' }],
+      order: [['name', 'ASC']],
+    });
+  }
+
+  async findStudyTrackSpecializations(studyTrackId: string) {
+    const models = await this.getScheduleModels();
+    await this.findActiveStudyTrack(models, studyTrackId);
+
+    return models.studyTrackSpecializationModel.findAll({
+      where: { studyTrackId, active: true },
+      include: [{ model: models.groupModel, as: 'specialization' }],
+      order: [['createdAt', 'ASC']],
     });
   }
 
@@ -455,6 +504,79 @@ export class ScheduleService implements OnModuleInit {
     await this.validateUniqueAcademicGroupName(models, nextGroup, id);
     await group.update(dto);
     return group;
+  }
+
+  async createStudyTrack(dto: CreateScheduleStudyTrackDto) {
+    const models = await this.getScheduleModels();
+    await this.validateStudyTrackCourse(models, dto.courseId);
+    await this.validateUniqueStudyTrackName(models, dto);
+    return models.studyTrackModel.create(dto);
+  }
+
+  async updateStudyTrack(id: string, dto: UpdateScheduleStudyTrackDto) {
+    const models = await this.getScheduleModels();
+    const studyTrack = await models.studyTrackModel.findByPk(id);
+    if (!studyTrack) {
+      throw new NotFoundException('Nie znaleziono toku.');
+    }
+
+    const nextStudyTrack: StudyTrackLike = {
+      name: dto.name ?? studyTrack.name,
+      courseId: dto.courseId ?? studyTrack.courseId,
+    };
+
+    await this.validateStudyTrackCourse(models, nextStudyTrack.courseId);
+    await this.validateUniqueStudyTrackName(models, nextStudyTrack, id);
+    await studyTrack.update(dto);
+    return studyTrack;
+  }
+
+  async addStudyTrackSpecialization(
+    studyTrackId: string,
+    dto: CreateScheduleStudyTrackSpecializationDto,
+  ) {
+    const models = await this.getScheduleModels();
+    const studyTrack = await this.findActiveStudyTrack(models, studyTrackId);
+    await this.validateStudyTrackSpecialization(models, studyTrack, dto.specializationId);
+
+    const existingLink = await models.studyTrackSpecializationModel.findOne({
+      where: { studyTrackId, specializationId: dto.specializationId },
+    });
+
+    if (existingLink) {
+      if (!existingLink.active) {
+        await existingLink.update({ active: true });
+      }
+
+      return models.studyTrackSpecializationModel.findByPk(existingLink.id, {
+        include: [{ model: models.groupModel, as: 'specialization' }],
+      });
+    }
+
+    const link = await models.studyTrackSpecializationModel.create({
+      studyTrackId,
+      specializationId: dto.specializationId,
+    });
+
+    return models.studyTrackSpecializationModel.findByPk(link.id, {
+      include: [{ model: models.groupModel, as: 'specialization' }],
+    });
+  }
+
+  async removeStudyTrackSpecialization(studyTrackId: string, specializationId: string) {
+    const models = await this.getScheduleModels();
+    await this.findActiveStudyTrack(models, studyTrackId);
+
+    const link = await models.studyTrackSpecializationModel.findOne({
+      where: { studyTrackId, specializationId, active: true },
+    });
+
+    if (!link) {
+      throw new NotFoundException('Nie znaleziono specjalnosci przypisanej do tego toku.');
+    }
+
+    await link.update({ active: false });
+    return { deleted: true, studyTrackId, specializationId };
   }
 
   async createLesson(dto: CreateScheduleLessonDto) {
@@ -728,6 +850,7 @@ export class ScheduleService implements OnModuleInit {
       this.defineScheduleModels(scheduleDatabase);
       await scheduleDatabase.authenticate();
       await scheduleDatabase.sync();
+      await this.ensureScheduleAcademicGroupStudyModeColumn(scheduleDatabase);
     } finally {
       await scheduleDatabase.close();
     }
@@ -746,6 +869,46 @@ export class ScheduleService implements OnModuleInit {
     );
   }
 
+  private async ensureScheduleAcademicGroupStudyModeColumn(sequelize: Sequelize): Promise<void> {
+    await sequelize.query(
+      `ALTER TABLE "schedule_academic_groups"
+       ADD COLUMN IF NOT EXISTS "studyMode" VARCHAR(30) NOT NULL DEFAULT '${ScheduleStudyMode.UNASSIGNED}'`,
+    );
+    await sequelize.query(
+      `DO $$
+       BEGIN
+         IF NOT EXISTS (
+           SELECT 1
+           FROM pg_constraint
+           WHERE conname = 'schedule_academic_groups_study_mode_allowed'
+         ) THEN
+           ALTER TABLE "schedule_academic_groups"
+           ADD CONSTRAINT "schedule_academic_groups_study_mode_allowed"
+           CHECK ("studyMode" IN (
+             '${ScheduleStudyMode.UNASSIGNED}',
+             '${ScheduleStudyMode.FULL_TIME}',
+             '${ScheduleStudyMode.PART_TIME}',
+             '${ScheduleStudyMode.POSTGRADUATE}'
+           ));
+         END IF;
+       END $$`,
+    );
+    await sequelize.query(
+      `DO $$
+       BEGIN
+         IF NOT EXISTS (
+           SELECT 1
+           FROM pg_constraint
+           WHERE conname = 'schedule_academic_groups_study_mode_course_only'
+         ) THEN
+           ALTER TABLE "schedule_academic_groups"
+           ADD CONSTRAINT "schedule_academic_groups_study_mode_course_only"
+           CHECK ("level" = '${ScheduleGroupLevel.COURSE}' OR "studyMode" = '${ScheduleStudyMode.UNASSIGNED}');
+         END IF;
+       END $$`,
+    );
+  }
+
   private mainScheduleModels(): ScheduleDatabaseModels {
     return {
       subjectModel: this.subjectModel,
@@ -755,6 +918,8 @@ export class ScheduleService implements OnModuleInit {
       noteModel: this.noteModel,
       locationModel: this.locationModel,
       groupModel: this.groupModel,
+      studyTrackModel: this.studyTrackModel,
+      studyTrackSpecializationModel: this.studyTrackSpecializationModel,
       lessonModel: this.lessonModel,
     };
   }
@@ -789,6 +954,8 @@ export class ScheduleService implements OnModuleInit {
     });
     const models = this.defineScheduleModels(sequelize);
     await sequelize.authenticate();
+    await sequelize.sync();
+    await this.ensureScheduleAcademicGroupStudyModeColumn(sequelize);
     this.academicYearDatabases.set(databaseName, { sequelize, models });
     return models;
   }
@@ -871,10 +1038,35 @@ export class ScheduleService implements OnModuleInit {
         id: uuidPrimaryKey(),
         name: { type: DataTypes.STRING(220), allowNull: false },
         level: { type: DataTypes.STRING(30), allowNull: false },
+        studyMode: {
+          type: DataTypes.STRING(30),
+          allowNull: false,
+          defaultValue: ScheduleStudyMode.UNASSIGNED,
+        },
         parentId: { type: DataTypes.UUID, allowNull: true },
         active: activeColumn,
       },
       { tableName: 'schedule_academic_groups' },
+    );
+    const studyTrackModel = sequelize.define(
+      'ScheduleStudyTrack',
+      {
+        id: uuidPrimaryKey(),
+        name: { type: DataTypes.STRING(160), allowNull: false },
+        courseId: { type: DataTypes.UUID, allowNull: false },
+        active: activeColumn,
+      },
+      { tableName: 'schedule_study_tracks' },
+    );
+    const studyTrackSpecializationModel = sequelize.define(
+      'ScheduleStudyTrackSpecialization',
+      {
+        id: uuidPrimaryKey(),
+        studyTrackId: { type: DataTypes.UUID, allowNull: false },
+        specializationId: { type: DataTypes.UUID, allowNull: false },
+        active: activeColumn,
+      },
+      { tableName: 'schedule_study_track_specializations' },
     );
     const lessonModel = sequelize.define(
       'ScheduleLesson',
@@ -900,6 +1092,24 @@ export class ScheduleService implements OnModuleInit {
     locationModel.hasMany(locationModel, { foreignKey: 'parentId', as: 'children' });
     groupModel.belongsTo(groupModel, { foreignKey: 'parentId', as: 'parent' });
     groupModel.hasMany(groupModel, { foreignKey: 'parentId', as: 'children' });
+    studyTrackModel.belongsTo(groupModel, { foreignKey: 'courseId', as: 'course' });
+    groupModel.hasMany(studyTrackModel, { foreignKey: 'courseId', as: 'studyTracks' });
+    studyTrackSpecializationModel.belongsTo(studyTrackModel, {
+      foreignKey: 'studyTrackId',
+      as: 'studyTrack',
+    });
+    studyTrackModel.hasMany(studyTrackSpecializationModel, {
+      foreignKey: 'studyTrackId',
+      as: 'specializations',
+    });
+    studyTrackSpecializationModel.belongsTo(groupModel, {
+      foreignKey: 'specializationId',
+      as: 'specialization',
+    });
+    groupModel.hasMany(studyTrackSpecializationModel, {
+      foreignKey: 'specializationId',
+      as: 'studyTrackLinks',
+    });
     lessonModel.belongsTo(teacherModel, { foreignKey: 'teacherId', as: 'teacher' });
     lessonModel.belongsTo(subjectModel, { foreignKey: 'subjectId', as: 'subject' });
     lessonModel.belongsTo(locationModel, { foreignKey: 'roomId', as: 'room' });
@@ -915,6 +1125,8 @@ export class ScheduleService implements OnModuleInit {
       noteModel,
       locationModel,
       groupModel,
+      studyTrackModel,
+      studyTrackSpecializationModel,
       lessonModel,
     };
   }
@@ -1001,6 +1213,66 @@ export class ScheduleService implements OnModuleInit {
     }
 
     throw new ConflictException('Grupa o podanej nazwie juz istnieje w tej specjalnosci.');
+  }
+
+  private async validateStudyTrackCourse(
+    models: ScheduleDatabaseModels,
+    courseId: string,
+  ): Promise<void> {
+    const course = await models.groupModel.findByPk(courseId);
+    if (!course || !course.active || course.level !== ScheduleGroupLevel.COURSE) {
+      throw new BadRequestException('Wybierz prawidlowy kierunek.');
+    }
+  }
+
+  private async validateUniqueStudyTrackName(
+    models: ScheduleDatabaseModels,
+    dto: StudyTrackLike,
+    ignoredStudyTrackId?: string,
+  ): Promise<void> {
+    const existingStudyTrack = await models.studyTrackModel.findOne({
+      where: {
+        ...(ignoredStudyTrackId ? { id: { [Op.ne]: ignoredStudyTrackId } } : {}),
+        name: dto.name,
+        courseId: dto.courseId,
+        active: true,
+      },
+    });
+
+    if (existingStudyTrack) {
+      throw new ConflictException('Tok o podanej nazwie juz istnieje dla tego kierunku.');
+    }
+  }
+
+  private async findActiveStudyTrack(
+    models: ScheduleDatabaseModels,
+    studyTrackId: string,
+  ): Promise<any> {
+    const studyTrack = await models.studyTrackModel.findByPk(studyTrackId);
+    if (!studyTrack || !studyTrack.active) {
+      throw new NotFoundException('Nie znaleziono toku.');
+    }
+
+    return studyTrack;
+  }
+
+  private async validateStudyTrackSpecialization(
+    models: ScheduleDatabaseModels,
+    studyTrack: any,
+    specializationId: string,
+  ): Promise<void> {
+    const specialization = await models.groupModel.findByPk(specializationId);
+    if (
+      !specialization ||
+      !specialization.active ||
+      specialization.level !== ScheduleGroupLevel.SPECIALIZATION
+    ) {
+      throw new BadRequestException('Wybierz prawidlowa specjalnosc.');
+    }
+
+    if (specialization.parentId !== studyTrack.courseId) {
+      throw new ConflictException('Specjalnosc musi nalezec do kierunku wybranego toku.');
+    }
   }
 
   private async assertNoLessonConflicts(

@@ -15,6 +15,13 @@ export enum ScheduleGroupLevel {
   GROUP = 'GROUP',
 }
 
+export enum ScheduleStudyMode {
+  UNASSIGNED = 'UNASSIGNED',
+  FULL_TIME = 'FULL_TIME',
+  PART_TIME = 'PART_TIME',
+  POSTGRADUATE = 'POSTGRADUATE',
+}
+
 @Table({ tableName: 'schedule_academic_groups' })
 export class ScheduleAcademicGroup extends Model<ScheduleAcademicGroup> {
   @Column({
@@ -37,6 +44,13 @@ export class ScheduleAcademicGroup extends Model<ScheduleAcademicGroup> {
     allowNull: false,
   })
   declare level: ScheduleGroupLevel;
+
+  @Column({
+    type: DataType.STRING(30),
+    allowNull: false,
+    defaultValue: ScheduleStudyMode.UNASSIGNED,
+  })
+  declare studyMode: ScheduleStudyMode;
 
   @ForeignKey(() => ScheduleAcademicGroup)
   @Column({

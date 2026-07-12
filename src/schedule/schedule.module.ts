@@ -6,6 +6,8 @@ import { ScheduleClassType } from './models/schedule-class-type.model';
 import { ScheduleLesson } from './models/schedule-lesson.model';
 import { ScheduleLocation } from './models/schedule-location.model';
 import { ScheduleNote } from './models/schedule-note.model';
+import { ScheduleStudyTrack } from './models/schedule-study-track.model';
+import { ScheduleStudyTrackSpecialization } from './models/schedule-study-track-specialization.model';
 import { ScheduleSubject } from './models/schedule-subject.model';
 import { ScheduleTeacherSubject } from './models/schedule-teacher-subject.model';
 import { ScheduleTeacher } from './models/schedule-teacher.model';
@@ -22,6 +24,8 @@ import { ScheduleService } from './schedule.service';
       ScheduleNote,
       ScheduleLocation,
       ScheduleAcademicGroup,
+      ScheduleStudyTrack,
+      ScheduleStudyTrackSpecialization,
       ScheduleAcademicYear,
       ScheduleLesson,
     ]),

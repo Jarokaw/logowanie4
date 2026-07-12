@@ -12,7 +12,10 @@ import {
   Max,
   Min,
 } from 'class-validator';
-import { ScheduleGroupLevel } from '../models/schedule-academic-group.model';
+import {
+  ScheduleGroupLevel,
+  ScheduleStudyMode,
+} from '../models/schedule-academic-group.model';
 import { ScheduleLocationType } from '../models/schedule-location.model';
 
 export class CreateScheduleSubjectDto {
@@ -217,6 +220,11 @@ export class CreateScheduleAcademicGroupDto {
   @IsEnum(ScheduleGroupLevel)
   level: ScheduleGroupLevel;
 
+  @ApiPropertyOptional({ enum: ScheduleStudyMode })
+  @IsOptional()
+  @IsEnum(ScheduleStudyMode)
+  studyMode?: ScheduleStudyMode;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsUUID()
@@ -235,10 +243,55 @@ export class UpdateScheduleAcademicGroupDto {
   @Length(2, 220)
   name?: string;
 
+  @ApiPropertyOptional({ enum: ScheduleStudyMode })
+  @IsOptional()
+  @IsEnum(ScheduleStudyMode)
+  studyMode?: ScheduleStudyMode;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+}
+
+export class CreateScheduleStudyTrackDto {
+  @ApiProperty()
+  @IsString()
+  @Length(2, 160)
+  name: string;
+
+  @ApiProperty()
+  @IsUUID()
+  courseId: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  active?: boolean;
+}
+
+export class UpdateScheduleStudyTrackDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @Length(2, 160)
+  name?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  courseId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  active?: boolean;
+}
+
+export class CreateScheduleStudyTrackSpecializationDto {
+  @ApiProperty()
+  @IsUUID()
+  specializationId: string;
 }
 
 export class CreateScheduleLessonDto {

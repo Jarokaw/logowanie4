@@ -18,6 +18,8 @@ import {
   CreateScheduleLessonDto,
   CreateScheduleLocationDto,
   CreateScheduleNoteDto,
+  CreateScheduleStudyTrackDto,
+  CreateScheduleStudyTrackSpecializationDto,
   CreateScheduleSubjectDto,
   CreateScheduleTeacherDto,
   ScheduleLessonFilters,
@@ -27,6 +29,7 @@ import {
   UpdateScheduleLessonDto,
   UpdateScheduleLocationDto,
   UpdateScheduleNoteDto,
+  UpdateScheduleStudyTrackDto,
   UpdateScheduleSubjectDto,
   UpdateScheduleTeacherDto,
 } from './dto/schedule.dto';
@@ -61,6 +64,18 @@ export class ScheduleController {
   @ApiOperation({ summary: 'Get academic years' })
   findAcademicYears() {
     return this.scheduleService.findAcademicYears();
+  }
+
+  @Get('study-tracks')
+  @ApiOperation({ summary: 'Get study tracks' })
+  findStudyTracks(@Query('courseId') courseId?: string) {
+    return this.scheduleService.findStudyTracks(courseId);
+  }
+
+  @Get('study-tracks/:id/specializations')
+  @ApiOperation({ summary: 'Get study track specializations' })
+  findStudyTrackSpecializations(@Param('id') id: string) {
+    return this.scheduleService.findStudyTrackSpecializations(id);
   }
 
   @Get('rooms')
@@ -215,6 +230,37 @@ export class ScheduleController {
   @Patch('groups/:id')
   patchGroup(@Param('id') id: string, @Body() dto: UpdateScheduleAcademicGroupDto) {
     return this.scheduleService.updateGroup(id, dto);
+  }
+
+  @Post('study-tracks')
+  createStudyTrack(@Body() dto: CreateScheduleStudyTrackDto) {
+    return this.scheduleService.createStudyTrack(dto);
+  }
+
+  @Put('study-tracks/:id')
+  updateStudyTrack(@Param('id') id: string, @Body() dto: UpdateScheduleStudyTrackDto) {
+    return this.scheduleService.updateStudyTrack(id, dto);
+  }
+
+  @Patch('study-tracks/:id')
+  patchStudyTrack(@Param('id') id: string, @Body() dto: UpdateScheduleStudyTrackDto) {
+    return this.scheduleService.updateStudyTrack(id, dto);
+  }
+
+  @Post('study-tracks/:id/specializations')
+  addStudyTrackSpecialization(
+    @Param('id') id: string,
+    @Body() dto: CreateScheduleStudyTrackSpecializationDto,
+  ) {
+    return this.scheduleService.addStudyTrackSpecialization(id, dto);
+  }
+
+  @Delete('study-tracks/:id/specializations/:specializationId')
+  removeStudyTrackSpecialization(
+    @Param('id') id: string,
+    @Param('specializationId') specializationId: string,
+  ) {
+    return this.scheduleService.removeStudyTrackSpecialization(id, specializationId);
   }
 
   @Post('lessons')
