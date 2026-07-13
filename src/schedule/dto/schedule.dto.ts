@@ -123,6 +123,26 @@ export class UpdateScheduleTeacherDto {
   active?: boolean;
 }
 
+export class CreateScheduleTeacherSubjectDto {
+  @ApiProperty()
+  @IsUUID()
+  teacherId: string;
+
+  @ApiProperty()
+  @IsUUID()
+  subjectId: string;
+}
+
+export class CreateScheduleCourseTeacherDto {
+  @ApiProperty()
+  @IsUUID()
+  courseId: string;
+
+  @ApiProperty()
+  @IsUUID()
+  teacherId: string;
+}
+
 export class CreateScheduleClassTypeDto {
   @ApiProperty()
   @IsString()

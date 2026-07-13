@@ -19,6 +19,7 @@ import { ScheduleClassType } from './schedule/models/schedule-class-type.model';
 import { ScheduleLesson } from './schedule/models/schedule-lesson.model';
 import { ScheduleLocation } from './schedule/models/schedule-location.model';
 import { ScheduleNote } from './schedule/models/schedule-note.model';
+import { ScheduleCourseTeacher } from './schedule/models/schedule-course-teacher.model';
 import { ScheduleStudyTrack } from './schedule/models/schedule-study-track.model';
 import { ScheduleStudyTrackSpecialization } from './schedule/models/schedule-study-track-specialization.model';
 import { ScheduleSubject } from './schedule/models/schedule-subject.model';
@@ -42,6 +43,7 @@ import { ScheduleTeacher } from './schedule/models/schedule-teacher.model';
       Role,
       ScheduleSubject,
       ScheduleTeacher,
+      ScheduleCourseTeacher,
       ScheduleTeacherSubject,
       ScheduleClassType,
       ScheduleNote,

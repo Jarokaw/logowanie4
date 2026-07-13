@@ -17,6 +17,7 @@ import {
   CreateScheduleAcademicGroupDto,
   CreateScheduleAcademicYearDto,
   CreateScheduleClassTypeDto,
+  CreateScheduleCourseTeacherDto,
   CreateScheduleLessonDto,
   CreateScheduleLocationDto,
   CreateScheduleNoteDto,
@@ -24,6 +25,7 @@ import {
   CreateScheduleStudyTrackSpecializationDto,
   CreateScheduleSubjectDto,
   CreateScheduleTeacherDto,
+  CreateScheduleTeacherSubjectDto,
   ImportScheduleAcademicYearBackupDto,
   ScheduleLessonFilters,
   UpdateScheduleAcademicGroupDto,
@@ -61,6 +63,42 @@ export class ScheduleController {
   @ApiOperation({ summary: 'Get subjects, optionally assigned to teacher' })
   findSubjects(@Query('teacherId') teacherId?: string) {
     return this.scheduleService.findSubjects(teacherId);
+  }
+
+  @Get('teacher-subjects')
+  @ApiOperation({ summary: 'Get subjects assigned to teacher' })
+  findTeacherSubjects(@Query('teacherId') teacherId: string) {
+    return this.scheduleService.findTeacherSubjects(teacherId);
+  }
+
+  @Post('teacher-subjects')
+  @ApiOperation({ summary: 'Assign subject to teacher' })
+  createTeacherSubject(@Body() dto: CreateScheduleTeacherSubjectDto) {
+    return this.scheduleService.createTeacherSubject(dto);
+  }
+
+  @Delete('teacher-subjects/:id')
+  @ApiOperation({ summary: 'Remove subject assignment from teacher' })
+  deleteTeacherSubject(@Param('id') id: string) {
+    return this.scheduleService.deleteTeacherSubject(id);
+  }
+
+  @Get('course-teachers')
+  @ApiOperation({ summary: 'Get teachers assigned to course' })
+  findCourseTeachers(@Query('courseId') courseId: string) {
+    return this.scheduleService.findCourseTeachers(courseId);
+  }
+
+  @Post('course-teachers')
+  @ApiOperation({ summary: 'Assign teacher to course' })
+  createCourseTeacher(@Body() dto: CreateScheduleCourseTeacherDto) {
+    return this.scheduleService.createCourseTeacher(dto);
+  }
+
+  @Delete('course-teachers/:id')
+  @ApiOperation({ summary: 'Remove teacher assignment from course' })
+  deleteCourseTeacher(@Param('id') id: string) {
+    return this.scheduleService.deleteCourseTeacher(id);
   }
 
   @Get('academic-years')

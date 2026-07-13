@@ -12,6 +12,7 @@ import {
   CreateScheduleAcademicGroupDto,
   CreateScheduleAcademicYearDto,
   CreateScheduleClassTypeDto,
+  CreateScheduleCourseTeacherDto,
   CreateScheduleLessonDto,
   CreateScheduleLocationDto,
   CreateScheduleNoteDto,
@@ -19,6 +20,7 @@ import {
   CreateScheduleStudyTrackSpecializationDto,
   CreateScheduleSubjectDto,
   CreateScheduleTeacherDto,
+  CreateScheduleTeacherSubjectDto,
   ImportScheduleAcademicYearBackupDto,
   ScheduleLessonFilters,
   UpdateScheduleAcademicGroupDto,
@@ -43,6 +45,7 @@ import {
   ScheduleLocationType,
 } from './models/schedule-location.model';
 import { ScheduleNote } from './models/schedule-note.model';
+import { ScheduleCourseTeacher } from './models/schedule-course-teacher.model';
 import { ScheduleStudyTrack } from './models/schedule-study-track.model';
 import { ScheduleStudyTrackSpecialization } from './models/schedule-study-track-specialization.model';
 import { ScheduleLesson } from './models/schedule-lesson.model';
@@ -70,6 +73,7 @@ type StudyTrackLike = Pick<CreateScheduleStudyTrackDto, 'name' | 'courseId'>;
 type ScheduleDatabaseModels = {
   subjectModel: any;
   teacherModel: any;
+  courseTeacherModel: any;
   teacherSubjectModel: any;
   classTypeModel: any;
   noteModel: any;
@@ -132,6 +136,8 @@ export class ScheduleService implements OnModuleInit {
     private readonly subjectModel: typeof ScheduleSubject,
     @InjectModel(ScheduleTeacher)
     private readonly teacherModel: typeof ScheduleTeacher,
+    @InjectModel(ScheduleCourseTeacher)
+    private readonly courseTeacherModel: typeof ScheduleCourseTeacher,
     @InjectModel(ScheduleTeacherSubject)
     private readonly teacherSubjectModel: typeof ScheduleTeacherSubject,
     @InjectModel(ScheduleClassType)
@@ -169,6 +175,7 @@ export class ScheduleService implements OnModuleInit {
       groups,
       studyTracks,
       studyTrackSpecializations,
+      courseTeachers,
       academicYears,
     ] = await Promise.all([
       models.subjectModel.findAll({ where: { active: true }, order: [['name', 'ASC']] }),
@@ -189,6 +196,17 @@ export class ScheduleService implements OnModuleInit {
         include: [{ model: models.groupModel, as: 'specialization' }],
         order: [['createdAt', 'ASC']],
       }),
+      models.courseTeacherModel.findAll({
+        include: [
+          {
+            model: models.groupModel,
+            as: 'course',
+            where: { active: true, level: ScheduleGroupLevel.COURSE },
+          },
+          { model: models.teacherModel, as: 'teacher', where: { active: true } },
+        ],
+        order: [['createdAt', 'ASC']],
+      }),
       this.academicYearModel.findAll({ where: { active: true }, order: [['name', 'ASC']] }),
     ]);
 
@@ -202,6 +220,7 @@ export class ScheduleService implements OnModuleInit {
       groups,
       studyTracks,
       studyTrackSpecializations,
+      courseTeachers: courseTeachers.map((link) => this.mapCourseTeacher(link)),
       academicYears,
       timeSlots: {
         hours: this.range(6, 22),
@@ -242,6 +261,30 @@ export class ScheduleService implements OnModuleInit {
       where: { active: true, id: { [Op.in]: subjectIds } },
       order: [['name', 'ASC']],
     });
+  }
+
+  async findTeacherSubjects(teacherId: string) {
+    const models = await this.getScheduleModels();
+    await this.findActiveTeacher(models, teacherId);
+
+    const links = await models.teacherSubjectModel.findAll({
+      where: { teacherId },
+      include: [{ model: models.subjectModel, as: 'subject', where: { active: true } }],
+    });
+
+    return this.sortTeacherSubjectLinks(links).map((link) => this.mapTeacherSubject(link));
+  }
+
+  async findCourseTeachers(courseId: string) {
+    const models = await this.getScheduleModels();
+    await this.findActiveCourse(models, courseId);
+
+    const links = await models.courseTeacherModel.findAll({
+      where: { courseId },
+      include: [{ model: models.teacherModel, as: 'teacher', where: { active: true } }],
+    });
+
+    return this.sortCourseTeacherLinks(links).map((link) => this.mapCourseTeacher(link));
   }
 
   async findAcademicYears(): Promise<ScheduleAcademicYear[]> {
@@ -521,6 +564,70 @@ export class ScheduleService implements OnModuleInit {
     return this.mapTeacher(teacher);
   }
 
+  async createTeacherSubject(dto: CreateScheduleTeacherSubjectDto) {
+    const models = await this.getScheduleModels();
+    await Promise.all([
+      this.findActiveTeacher(models, dto.teacherId),
+      this.findActiveSubject(models, dto.subjectId),
+    ]);
+
+    const existingLink = await models.teacherSubjectModel.findOne({
+      where: { teacherId: dto.teacherId, subjectId: dto.subjectId },
+    });
+
+    if (existingLink) {
+      return this.findTeacherSubjectById(models, existingLink.id);
+    }
+
+    const link = await models.teacherSubjectModel.create(dto);
+    return this.findTeacherSubjectById(models, link.id);
+  }
+
+  async deleteTeacherSubject(id: string) {
+    const models = await this.getScheduleModels();
+    const link = await models.teacherSubjectModel.findByPk(id);
+    if (!link) {
+      throw new NotFoundException('Nie znaleziono powiązania wykładowcy z przedmiotem.');
+    }
+
+    const teacherId = link.teacherId;
+    const subjectId = link.subjectId;
+    await link.destroy();
+    return { deleted: true, id, teacherId, subjectId };
+  }
+
+  async createCourseTeacher(dto: CreateScheduleCourseTeacherDto) {
+    const models = await this.getScheduleModels();
+    await Promise.all([
+      this.findActiveCourse(models, dto.courseId),
+      this.findActiveTeacher(models, dto.teacherId),
+    ]);
+
+    const existingLink = await models.courseTeacherModel.findOne({
+      where: { courseId: dto.courseId, teacherId: dto.teacherId },
+    });
+
+    if (existingLink) {
+      return this.findCourseTeacherById(models, existingLink.id);
+    }
+
+    const link = await models.courseTeacherModel.create(dto);
+    return this.findCourseTeacherById(models, link.id);
+  }
+
+  async deleteCourseTeacher(id: string) {
+    const models = await this.getScheduleModels();
+    const link = await models.courseTeacherModel.findByPk(id);
+    if (!link) {
+      throw new NotFoundException('Nie znaleziono powiązania kierunku z wykładowcą.');
+    }
+
+    const courseId = link.courseId;
+    const teacherId = link.teacherId;
+    await link.destroy();
+    return { deleted: true, id, courseId, teacherId };
+  }
+
   async createClassType(dto: CreateScheduleClassTypeDto) {
     const models = await this.getScheduleModels();
     await this.validateUniqueClassTypeName(models, dto.name);
@@ -746,6 +853,66 @@ export class ScheduleService implements OnModuleInit {
       { model: models.classTypeModel, as: 'classType' },
       { model: models.noteModel, as: 'note' },
     ];
+  }
+
+  private teacherSubjectIncludes(models: ScheduleDatabaseModels) {
+    return [{ model: models.subjectModel, as: 'subject' }];
+  }
+
+  private courseTeacherIncludes(models: ScheduleDatabaseModels) {
+    return [
+      { model: models.groupModel, as: 'course' },
+      { model: models.teacherModel, as: 'teacher' },
+    ];
+  }
+
+  private async findTeacherSubjectById(models: ScheduleDatabaseModels, id: string) {
+    const link = await models.teacherSubjectModel.findByPk(id, {
+      include: this.teacherSubjectIncludes(models),
+    });
+    if (!link) {
+      throw new NotFoundException('Nie znaleziono powiązania wykładowcy z przedmiotem.');
+    }
+
+    return this.mapTeacherSubject(link);
+  }
+
+  private async findCourseTeacherById(models: ScheduleDatabaseModels, id: string) {
+    const link = await models.courseTeacherModel.findByPk(id, {
+      include: this.courseTeacherIncludes(models),
+    });
+    if (!link) {
+      throw new NotFoundException('Nie znaleziono powiązania kierunku z wykładowcą.');
+    }
+
+    return this.mapCourseTeacher(link);
+  }
+
+  private async findActiveTeacher(models: ScheduleDatabaseModels, teacherId: string) {
+    const teacher = await models.teacherModel.findByPk(teacherId);
+    if (!teacher || !teacher.active) {
+      throw new NotFoundException('Nie znaleziono wykładowcy.');
+    }
+
+    return teacher;
+  }
+
+  private async findActiveCourse(models: ScheduleDatabaseModels, courseId: string) {
+    const course = await models.groupModel.findByPk(courseId);
+    if (!course || !course.active || course.level !== ScheduleGroupLevel.COURSE) {
+      throw new NotFoundException('Nie znaleziono kierunku.');
+    }
+
+    return course;
+  }
+
+  private async findActiveSubject(models: ScheduleDatabaseModels, subjectId: string) {
+    const subject = await models.subjectModel.findByPk(subjectId);
+    if (!subject || !subject.active) {
+      throw new NotFoundException('Nie znaleziono przedmiotu.');
+    }
+
+    return subject;
   }
 
   private async validateLessonReferences(models: ScheduleDatabaseModels, dto: LessonLike): Promise<void> {
@@ -1414,6 +1581,7 @@ END $$;`,
     return {
       subjectModel: this.subjectModel,
       teacherModel: this.teacherModel,
+      courseTeacherModel: this.courseTeacherModel,
       teacherSubjectModel: this.teacherSubjectModel,
       classTypeModel: this.classTypeModel,
       noteModel: this.noteModel,
@@ -1504,6 +1672,15 @@ END $$;`,
       },
       { tableName: 'schedule_teacher_subjects' },
     );
+    const courseTeacherModel = sequelize.define(
+      'ScheduleCourseTeacher',
+      {
+        id: uuidPrimaryKey(),
+        courseId: { type: DataTypes.UUID, allowNull: false },
+        teacherId: { type: DataTypes.UUID, allowNull: false },
+      },
+      { tableName: 'schedule_course_teachers' },
+    );
     const classTypeModel = sequelize.define(
       'ScheduleClassType',
       {
@@ -1589,6 +1766,8 @@ END $$;`,
 
     teacherSubjectModel.belongsTo(teacherModel, { foreignKey: 'teacherId', as: 'teacher' });
     teacherSubjectModel.belongsTo(subjectModel, { foreignKey: 'subjectId', as: 'subject' });
+    courseTeacherModel.belongsTo(groupModel, { foreignKey: 'courseId', as: 'course' });
+    courseTeacherModel.belongsTo(teacherModel, { foreignKey: 'teacherId', as: 'teacher' });
     locationModel.belongsTo(locationModel, { foreignKey: 'parentId', as: 'parent' });
     locationModel.hasMany(locationModel, { foreignKey: 'parentId', as: 'children' });
     groupModel.belongsTo(groupModel, { foreignKey: 'parentId', as: 'parent' });
@@ -1621,6 +1800,7 @@ END $$;`,
     return {
       subjectModel,
       teacherModel,
+      courseTeacherModel,
       teacherSubjectModel,
       classTypeModel,
       noteModel,
@@ -1878,6 +2058,54 @@ END $$;`,
       .filter(Boolean)
       .join(' ');
     return { ...teacher.toJSON(), fullName };
+  }
+
+  private sortTeacherSubjectLinks(links: any[]) {
+    return [...links].sort((first, second) =>
+      (first.subject?.name ?? '').localeCompare(second.subject?.name ?? '', 'pl'),
+    );
+  }
+
+  private sortCourseTeacherLinks(links: any[]) {
+    return [...links].sort((first, second) => {
+      const firstName = first.teacher ? this.mapTeacher(first.teacher).fullName : '';
+      const secondName = second.teacher ? this.mapTeacher(second.teacher).fullName : '';
+      return firstName.localeCompare(secondName, 'pl');
+    });
+  }
+
+  private mapTeacherSubject(link: any) {
+    return {
+      id: link.id,
+      teacherId: link.teacherId,
+      subjectId: link.subjectId,
+      subject: link.subject
+        ? {
+            id: link.subject.id,
+            name: link.subject.name,
+            active: link.subject.active,
+          }
+        : null,
+    };
+  }
+
+  private mapCourseTeacher(link: any) {
+    return {
+      id: link.id,
+      courseId: link.courseId,
+      teacherId: link.teacherId,
+      course: link.course
+        ? {
+            id: link.course.id,
+            name: link.course.name,
+            level: link.course.level,
+            studyMode: link.course.studyMode,
+            parentId: link.course.parentId,
+            active: link.course.active,
+          }
+        : null,
+      teacher: link.teacher ? this.mapTeacher(link.teacher) : null,
+    };
   }
 
   private mapConflict(lesson: ScheduleLesson) {
