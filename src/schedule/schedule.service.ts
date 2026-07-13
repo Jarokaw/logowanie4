@@ -19,6 +19,7 @@ import {
   CreateScheduleStudyTrackSpecializationDto,
   CreateScheduleSubjectDto,
   CreateScheduleTeacherDto,
+  ImportScheduleAcademicYearBackupDto,
   ScheduleLessonFilters,
   UpdateScheduleAcademicGroupDto,
   UpdateScheduleAcademicYearDto,
@@ -82,6 +83,41 @@ type ScheduleDatabaseModels = {
 type CachedScheduleDatabase = {
   sequelize: Sequelize;
   models: ScheduleDatabaseModels;
+};
+
+type BackupTableColumn = {
+  columnName: string;
+  dataType: string;
+  udtSchema: string;
+  udtName: string;
+  characterMaximumLength: number | null;
+  numericPrecision: number | null;
+  numericScale: number | null;
+  isNullable: 'YES' | 'NO';
+  columnDefault: string | null;
+};
+
+type BackupTable = {
+  tableName: string;
+};
+
+type BackupPrimaryKeyColumn = {
+  columnName: string;
+};
+
+type BackupSequence = {
+  sequenceName: string;
+};
+
+type BackupSequenceState = {
+  lastValue: string | number;
+  isCalled: boolean;
+};
+
+type BackupEnumRow = {
+  enumSchema: string;
+  enumName: string;
+  enumLabel: string;
 };
 
 @Injectable()
@@ -213,6 +249,75 @@ export class ScheduleService implements OnModuleInit {
       where: { active: true },
       order: [['name', 'ASC']],
     });
+  }
+
+  async backupAcademicYearDatabase(id: string): Promise<{ fileName: string; sql: string }> {
+    const academicYear = await this.findActiveAcademicYear(id);
+    const databaseName = this.validateAcademicYearDatabaseName(academicYear.name);
+    const backupDatabase = new Sequelize({
+      dialect: 'postgres',
+      host: process.env.DB_HOST,
+      port: Number(process.env.DB_PORT),
+      username: process.env.DB_USERNAME,
+      password: process.env.DB_PASSWORD,
+      database: databaseName,
+      logging: false,
+    });
+
+    try {
+      await backupDatabase.authenticate();
+      const sql = await this.createDatabaseBackupSql(backupDatabase, databaseName);
+      return {
+        fileName: `${databaseName}_backup_${this.backupTimestamp()}.sql`,
+        sql,
+      };
+    } catch {
+      throw new BadRequestException('Nie udalo sie przygotowac backupu bazy rocznika.');
+    } finally {
+      await backupDatabase.close();
+    }
+  }
+
+  async importAcademicYearDatabase(
+    id: string,
+    dto: ImportScheduleAcademicYearBackupDto,
+  ): Promise<ScheduleAcademicYear> {
+    const academicYear = await this.findActiveAcademicYear(id);
+    const databaseName = this.validateAcademicYearDatabaseName(academicYear.name);
+    const backupSql = this.validateAcademicYearBackupSql(dto.sql);
+
+    await this.closeCachedAcademicYearDatabase(databaseName);
+
+    const importDatabase = new Sequelize({
+      dialect: 'postgres',
+      host: process.env.DB_HOST,
+      port: Number(process.env.DB_PORT),
+      username: process.env.DB_USERNAME,
+      password: process.env.DB_PASSWORD,
+      database: databaseName,
+      logging: false,
+    });
+
+    let transaction: any = null;
+    try {
+      await importDatabase.authenticate();
+      transaction = await importDatabase.transaction();
+      await importDatabase.query(backupSql, { transaction });
+      await transaction.commit();
+      transaction = null;
+      await this.ensureScheduleAcademicGroupStudyModeColumn(importDatabase);
+      await this.closeCachedAcademicYearDatabase(databaseName);
+      return academicYear.reload();
+    } catch (error) {
+      if (transaction) {
+        await transaction.rollback();
+      }
+      throw new BadRequestException(
+        `Nie udalo sie zaimportowac backupu rocznika. ${this.databaseErrorText(error)}`,
+      );
+    } finally {
+      await importDatabase.close();
+    }
   }
 
   async findStudyTracks(courseId?: string): Promise<ScheduleStudyTrack[]> {
@@ -809,7 +914,9 @@ export class ScheduleService implements OnModuleInit {
 
   private async createAcademicYearDatabase(databaseName: string): Promise<void> {
     try {
-      await this.sequelize.query(`CREATE DATABASE ${this.quoteDatabaseIdentifier(databaseName)}`);
+      await this.sequelize.query(
+        `CREATE DATABASE ${this.quoteDatabaseIdentifier(databaseName)} WITH TEMPLATE template0`,
+      );
     } catch {
       throw new BadRequestException(
         'Nie udalo sie utworzyc bazy danych dla rocznika. Sprawdz uprawnienia PostgreSQL.',
@@ -856,8 +963,402 @@ export class ScheduleService implements OnModuleInit {
     }
   }
 
+  private async createDatabaseBackupSql(
+    sequelize: Sequelize,
+    databaseName: string,
+  ): Promise<string> {
+    const tables = await sequelize.query<BackupTable>(
+      `SELECT table_name AS "tableName"
+       FROM information_schema.tables
+       WHERE table_schema = 'public'
+         AND table_type = 'BASE TABLE'
+       ORDER BY table_name`,
+      { type: QueryTypes.SELECT },
+    );
+    const lines = [
+      `-- Backup bazy ${databaseName}`,
+      `-- Wygenerowano: ${new Date().toISOString()}`,
+      "SET client_encoding = 'UTF8';",
+      'SET standard_conforming_strings = on;',
+      'CREATE SCHEMA IF NOT EXISTS "public";',
+      'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+      'CREATE EXTENSION IF NOT EXISTS "pgcrypto";',
+      '',
+    ];
+
+    await this.appendBackupEnumDefinitions(sequelize, lines);
+    await this.appendBackupSequenceDefinitions(sequelize, lines);
+
+    if (tables.length === 0) {
+      lines.push('-- Baza nie zawiera tabel w schemacie public.');
+      return `${lines.join('\n')}\n`;
+    }
+
+    for (const table of tables) {
+      await this.appendBackupTableSql(sequelize, table.tableName, lines);
+    }
+
+    await this.appendBackupSequenceValues(sequelize, lines);
+    return `${lines.join('\n')}\n`;
+  }
+
+  private validateAcademicYearBackupSql(sql: string): string {
+    const backupSql = (sql ?? '').replace(/^\uFEFF/, '').trim();
+    if (!backupSql) {
+      throw new BadRequestException('Wybierz niepusty plik backupu SQL.');
+    }
+
+    if (!backupSql.startsWith('-- Backup bazy ')) {
+      throw new BadRequestException('Plik nie wyglada na backup wygenerowany przez aplikacje.');
+    }
+
+    if (!/CREATE\s+TABLE\s+"public"\."schedule_subjects"/i.test(backupSql)) {
+      throw new BadRequestException('Backup nie zawiera wymaganych tabel planu zajec.');
+    }
+
+    const forbiddenPatterns = [
+      /\bCREATE\s+DATABASE\b/i,
+      /\bDROP\s+DATABASE\b/i,
+      /\bALTER\s+DATABASE\b/i,
+      /\bCOMMIT\b/i,
+      /\bROLLBACK\b/i,
+      /\bCOPY\b[\s\S]*\bFROM\s+PROGRAM\b/i,
+      /\\connect\b/i,
+      /\\c\b/i,
+    ];
+    if (forbiddenPatterns.some((pattern) => pattern.test(backupSql))) {
+      throw new BadRequestException('Backup zawiera niedozwolone polecenia SQL.');
+    }
+
+    return backupSql;
+  }
+
+  private async closeCachedAcademicYearDatabase(databaseName: string): Promise<void> {
+    const cachedDatabase = this.academicYearDatabases.get(databaseName);
+    if (!cachedDatabase) {
+      return;
+    }
+
+    this.academicYearDatabases.delete(databaseName);
+    try {
+      await cachedDatabase.sequelize.close();
+    } catch {
+      return;
+    }
+  }
+
+  private databaseErrorText(error: unknown): string {
+    const databaseError = error as {
+      parent?: { message?: string };
+      original?: { message?: string };
+      message?: string;
+    };
+
+    return databaseError.parent?.message ?? databaseError.original?.message ?? databaseError.message ?? '';
+  }
+
+  private async appendBackupEnumDefinitions(
+    sequelize: Sequelize,
+    lines: string[],
+  ): Promise<void> {
+    const enumRows = await sequelize.query<BackupEnumRow>(
+      `SELECT namespace.nspname AS "enumSchema",
+              enum_type.typname AS "enumName",
+              enum_value.enumlabel AS "enumLabel"
+       FROM pg_type enum_type
+       JOIN pg_enum enum_value ON enum_value.enumtypid = enum_type.oid
+       JOIN pg_namespace namespace ON namespace.oid = enum_type.typnamespace
+       WHERE namespace.nspname = 'public'
+       ORDER BY namespace.nspname, enum_type.typname, enum_value.enumsortorder`,
+      { type: QueryTypes.SELECT },
+    );
+
+    if (enumRows.length === 0) {
+      return;
+    }
+
+    const enums = new Map<string, BackupEnumRow[]>();
+    for (const enumRow of enumRows) {
+      const key = `${enumRow.enumSchema}.${enumRow.enumName}`;
+      enums.set(key, [...(enums.get(key) ?? []), enumRow]);
+    }
+
+    lines.push('-- Typy ENUM');
+    for (const enumValues of enums.values()) {
+      const [firstValue] = enumValues;
+      const enumIdentifier = this.qualifiedSqlIdentifier(
+        firstValue.enumSchema,
+        firstValue.enumName,
+      );
+      const labels = enumValues.map((enumValue) => this.sqlLiteral(enumValue.enumLabel));
+      lines.push(
+        `DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type enum_type
+    JOIN pg_namespace namespace ON namespace.oid = enum_type.typnamespace
+    WHERE enum_type.typname = ${this.sqlLiteral(firstValue.enumName)}
+      AND namespace.nspname = ${this.sqlLiteral(firstValue.enumSchema)}
+  ) THEN
+    CREATE TYPE ${enumIdentifier} AS ENUM (${labels.join(', ')});
+  END IF;
+END $$;`,
+      );
+    }
+    lines.push('');
+  }
+
+  private async appendBackupSequenceDefinitions(
+    sequelize: Sequelize,
+    lines: string[],
+  ): Promise<void> {
+    const sequences = await this.findBackupSequences(sequelize);
+    if (sequences.length === 0) {
+      return;
+    }
+
+    lines.push('-- Sekwencje');
+    for (const sequence of sequences) {
+      const sequenceIdentifier = this.qualifiedSqlIdentifier('public', sequence.sequenceName);
+      lines.push(`DROP SEQUENCE IF EXISTS ${sequenceIdentifier} CASCADE;`);
+      lines.push(`CREATE SEQUENCE ${sequenceIdentifier};`);
+    }
+    lines.push('');
+  }
+
+  private async appendBackupTableSql(
+    sequelize: Sequelize,
+    tableName: string,
+    lines: string[],
+  ): Promise<void> {
+    const columns = await this.findBackupTableColumns(sequelize, tableName);
+    if (columns.length === 0) {
+      return;
+    }
+
+    const tableIdentifier = this.qualifiedSqlIdentifier('public', tableName);
+    const primaryKeyColumns = await this.findBackupPrimaryKeyColumns(sequelize, tableName);
+    const columnDefinitions = columns.map((column) => {
+      const defaultDefinition = column.columnDefault
+        ? ` DEFAULT ${column.columnDefault}`
+        : '';
+      const nullableDefinition = column.isNullable === 'NO' ? ' NOT NULL' : '';
+      return `  ${this.quoteSqlIdentifier(column.columnName)} ${this.backupColumnType(
+        column,
+      )}${defaultDefinition}${nullableDefinition}`;
+    });
+
+    lines.push(`-- Tabela ${tableName}`);
+    lines.push(`DROP TABLE IF EXISTS ${tableIdentifier} CASCADE;`);
+    lines.push(`CREATE TABLE ${tableIdentifier} (`);
+    lines.push(columnDefinitions.join(',\n'));
+    lines.push(');');
+
+    if (primaryKeyColumns.length > 0) {
+      const primaryKeyIdentifier = this.quoteSqlIdentifier(`${tableName}_pkey`);
+      const primaryKeyColumnList = primaryKeyColumns
+        .map((column) => this.quoteSqlIdentifier(column.columnName))
+        .join(', ');
+      lines.push(
+        `ALTER TABLE ${tableIdentifier} ADD CONSTRAINT ${primaryKeyIdentifier} PRIMARY KEY (${primaryKeyColumnList});`,
+      );
+    }
+
+    await this.appendBackupTableRows(sequelize, tableName, columns, lines);
+    lines.push('');
+  }
+
+  private async appendBackupTableRows(
+    sequelize: Sequelize,
+    tableName: string,
+    columns: BackupTableColumn[],
+    lines: string[],
+  ): Promise<void> {
+    const tableIdentifier = this.qualifiedSqlIdentifier('public', tableName);
+    const columnNames = columns.map((column) => column.columnName);
+    const columnList = columnNames.map((columnName) => this.quoteSqlIdentifier(columnName)).join(', ');
+    const primaryKeyColumns = await this.findBackupPrimaryKeyColumns(sequelize, tableName);
+    const orderBy = primaryKeyColumns.length
+      ? ` ORDER BY ${primaryKeyColumns
+          .map((column) => this.quoteSqlIdentifier(column.columnName))
+          .join(', ')}`
+      : '';
+    const rows = await sequelize.query<Record<string, unknown>>(
+      `SELECT ${columnList} FROM ${tableIdentifier}${orderBy}`,
+      { type: QueryTypes.SELECT },
+    );
+
+    if (rows.length === 0) {
+      lines.push(`-- Brak danych w tabeli ${tableName}.`);
+      return;
+    }
+
+    for (const row of rows) {
+      const values = columnNames.map((columnName) => this.sqlLiteral(row[columnName]));
+      lines.push(`INSERT INTO ${tableIdentifier} (${columnList}) VALUES (${values.join(', ')});`);
+    }
+  }
+
+  private async appendBackupSequenceValues(
+    sequelize: Sequelize,
+    lines: string[],
+  ): Promise<void> {
+    const sequences = await this.findBackupSequences(sequelize);
+    if (sequences.length === 0) {
+      return;
+    }
+
+    lines.push('-- Wartosci sekwencji');
+    for (const sequence of sequences) {
+      const sequenceIdentifier = this.qualifiedSqlIdentifier('public', sequence.sequenceName);
+      const [state] = await sequelize.query<BackupSequenceState>(
+        `SELECT last_value AS "lastValue", is_called AS "isCalled" FROM ${sequenceIdentifier}`,
+        { type: QueryTypes.SELECT },
+      );
+      if (!state) {
+        continue;
+      }
+
+      lines.push(
+        `SELECT setval(${this.sqlLiteral(`public.${sequence.sequenceName}`)}, ${state.lastValue}, ${
+          state.isCalled ? 'true' : 'false'
+        });`,
+      );
+    }
+    lines.push('');
+  }
+
+  private findBackupTableColumns(
+    sequelize: Sequelize,
+    tableName: string,
+  ): Promise<BackupTableColumn[]> {
+    return sequelize.query<BackupTableColumn>(
+      `SELECT column_name AS "columnName",
+              data_type AS "dataType",
+              udt_schema AS "udtSchema",
+              udt_name AS "udtName",
+              character_maximum_length AS "characterMaximumLength",
+              numeric_precision AS "numericPrecision",
+              numeric_scale AS "numericScale",
+              is_nullable AS "isNullable",
+              column_default AS "columnDefault"
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = :tableName
+       ORDER BY ordinal_position`,
+      {
+        replacements: { tableName },
+        type: QueryTypes.SELECT,
+      },
+    );
+  }
+
+  private findBackupPrimaryKeyColumns(
+    sequelize: Sequelize,
+    tableName: string,
+  ): Promise<BackupPrimaryKeyColumn[]> {
+    return sequelize.query<BackupPrimaryKeyColumn>(
+      `SELECT attribute.attname AS "columnName"
+       FROM pg_class table_class
+       JOIN pg_namespace namespace ON namespace.oid = table_class.relnamespace
+       JOIN pg_index index_info ON index_info.indrelid = table_class.oid
+       JOIN pg_attribute attribute
+         ON attribute.attrelid = table_class.oid
+        AND attribute.attnum = ANY(index_info.indkey)
+       WHERE namespace.nspname = 'public'
+         AND table_class.relname = :tableName
+         AND index_info.indisprimary
+       ORDER BY array_position(index_info.indkey, attribute.attnum)`,
+      {
+        replacements: { tableName },
+        type: QueryTypes.SELECT,
+      },
+    );
+  }
+
+  private findBackupSequences(sequelize: Sequelize): Promise<BackupSequence[]> {
+    return sequelize.query<BackupSequence>(
+      `SELECT sequence_name AS "sequenceName"
+       FROM information_schema.sequences
+       WHERE sequence_schema = 'public'
+       ORDER BY sequence_name`,
+      { type: QueryTypes.SELECT },
+    );
+  }
+
+  private backupColumnType(column: BackupTableColumn): string {
+    if (column.dataType === 'USER-DEFINED') {
+      return this.qualifiedSqlIdentifier(column.udtSchema, column.udtName);
+    }
+
+    if (column.dataType === 'character varying' && column.characterMaximumLength) {
+      return `character varying(${column.characterMaximumLength})`;
+    }
+
+    if (column.dataType === 'character' && column.characterMaximumLength) {
+      return `character(${column.characterMaximumLength})`;
+    }
+
+    if (column.dataType === 'numeric' && column.numericPrecision) {
+      return column.numericScale
+        ? `numeric(${column.numericPrecision}, ${column.numericScale})`
+        : `numeric(${column.numericPrecision})`;
+    }
+
+    return column.dataType;
+  }
+
+  private backupTimestamp(): string {
+    return new Date().toISOString().replace(/[:.]/g, '-');
+  }
+
+  private qualifiedSqlIdentifier(schemaName: string, identifier: string): string {
+    return `${this.quoteSqlIdentifier(schemaName)}.${this.quoteSqlIdentifier(identifier)}`;
+  }
+
+  private quoteSqlIdentifier(identifier: string): string {
+    return `"${identifier.replace(/"/g, '""')}"`;
+  }
+
+  private sqlLiteral(value: unknown): string {
+    if (value === null || value === undefined) {
+      return 'NULL';
+    }
+
+    if (value instanceof Date) {
+      return `'${value.toISOString().replace(/'/g, "''")}'`;
+    }
+
+    if (Buffer.isBuffer(value)) {
+      return `decode('${value.toString('hex')}', 'hex')`;
+    }
+
+    if (Array.isArray(value)) {
+      return `ARRAY[${value.map((item) => this.sqlLiteral(item)).join(', ')}]`;
+    }
+
+    if (typeof value === 'boolean') {
+      return value ? 'true' : 'false';
+    }
+
+    if (typeof value === 'number') {
+      return Number.isFinite(value) ? String(value) : 'NULL';
+    }
+
+    if (typeof value === 'bigint') {
+      return value.toString();
+    }
+
+    if (typeof value === 'object') {
+      return this.sqlLiteral(JSON.stringify(value));
+    }
+
+    return `'${String(value).replace(/\u0000/g, '').replace(/'/g, "''")}'`;
+  }
+
   private quoteDatabaseIdentifier(databaseName: string): string {
-    return `"${databaseName.replace(/"/g, '""')}"`;
+    return this.quoteSqlIdentifier(databaseName);
   }
 
   private async ensureAcademicYearActivityColumns(): Promise<void> {

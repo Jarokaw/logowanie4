@@ -8,8 +8,10 @@ import {
   Post,
   Put,
   Query,
+  Res,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Response } from 'express';
 import { Auth } from 'src/auth/auth.decorator';
 import {
   CreateScheduleAcademicGroupDto,
@@ -22,6 +24,7 @@ import {
   CreateScheduleStudyTrackSpecializationDto,
   CreateScheduleSubjectDto,
   CreateScheduleTeacherDto,
+  ImportScheduleAcademicYearBackupDto,
   ScheduleLessonFilters,
   UpdateScheduleAcademicGroupDto,
   UpdateScheduleAcademicYearDto,
@@ -64,6 +67,32 @@ export class ScheduleController {
   @ApiOperation({ summary: 'Get academic years' })
   findAcademicYears() {
     return this.scheduleService.findAcademicYears();
+  }
+
+  @Get('academic-years/:id/backup')
+  @ApiOperation({ summary: 'Download academic year database backup' })
+  async backupAcademicYear(
+    @Param('id') id: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const backup = await this.scheduleService.backupAcademicYearDatabase(id);
+    response.setHeader('Content-Type', 'application/sql; charset=utf-8');
+    response.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${backup.fileName}"; filename*=UTF-8''${encodeURIComponent(
+        backup.fileName,
+      )}`,
+    );
+    return backup.sql;
+  }
+
+  @Post('academic-years/:id/import')
+  @ApiOperation({ summary: 'Import academic year database backup' })
+  importAcademicYearBackup(
+    @Param('id') id: string,
+    @Body() dto: ImportScheduleAcademicYearBackupDto,
+  ) {
+    return this.scheduleService.importAcademicYearDatabase(id, dto);
   }
 
   @Get('study-tracks')
