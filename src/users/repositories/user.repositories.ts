@@ -6,6 +6,7 @@ import { Address } from "src/address/address.model";
 import { Role } from "src/role/role.model";
 import { Op } from "sequelize";
 
+type CreateUserAttributes = Pick<CreateUserDto, 'name' | 'password'>;
 
 @Injectable()
 export class UserRepository {
@@ -57,7 +58,7 @@ export class UserRepository {
         });
     }
 
-    async create(dto: CreateUserDto): Promise<User> {
+    async create(dto: CreateUserAttributes): Promise<User> {
         return await this.userModel.create(dto);
     }
     async update(user:User,dto: EditUserDto): Promise<User> {

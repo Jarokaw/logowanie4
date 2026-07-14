@@ -31,7 +31,7 @@ export class AuthService {
 
     async login(dto: LoginDto) {
         const user: ReturnUserDto = await this.validateUser(dto.name, dto.password);        
-        const payload = { sub: user.id, name: user.name }                   
+        const payload = this.createTokenPayload(user);
         return {
             accessToken: this.jwtService.sign(payload, { expiresIn: '15m' }),
             refreshToken: this.jwtService.sign(payload, { expiresIn: '7d' })
@@ -47,13 +47,23 @@ export class AuthService {
             const user = await this.userService.findOneByName(payload.name);
             if (!user) throw new UnauthorizedException('User not found');
 
-            const newPayload = { sub: user.id, name: user.name }
+            const newPayload = this.createTokenPayload(user);
             return {
                 accessToken: this.jwtService.sign(newPayload, { expiresIn: '15m' })                
             };
         } catch (error) {
             throw new UnauthorizedException('Invalid refresh token');
         }
+    }
+
+    private createTokenPayload(user: ReturnUserDto) {
+        const roles = (user.role ?? []).map((role) => role.role).filter(Boolean);
+        return {
+            sub: user.id,
+            name: user.name,
+            roles,
+            role: roles[0] ?? null,
+        };
     }
 }
 

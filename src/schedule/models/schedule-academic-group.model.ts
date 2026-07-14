@@ -13,6 +13,7 @@ export enum ScheduleGroupLevel {
   COURSE = 'COURSE',
   SPECIALIZATION = 'SPECIALIZATION',
   GROUP = 'GROUP',
+  WORKSHOP = 'WORKSHOP',
 }
 
 export enum ScheduleStudyMode {

@@ -1,9 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  ArrayNotEmpty,
+  ArrayUnique,
   IsBoolean,
   IsDateString,
   IsEnum,
   IsInt,
+  IsArray,
   IsOptional,
   IsString,
   IsUUID,
@@ -75,6 +78,32 @@ export class ImportScheduleAcademicYearBackupDto {
   @IsString()
   @Length(1, 50_000_000)
   sql: string;
+}
+
+export enum ScheduleAcademicYearTransferSection {
+  LESSONS = 'LESSONS',
+  STUDY_TRACKS = 'STUDY_TRACKS',
+  TEACHER_SUBJECTS = 'TEACHER_SUBJECTS',
+  COURSE_TEACHERS = 'COURSE_TEACHERS',
+  GROUPS = 'GROUPS',
+  SUBJECTS = 'SUBJECTS',
+  NOTES = 'NOTES',
+  LOCATIONS = 'LOCATIONS',
+  CLASS_TYPES = 'CLASS_TYPES',
+  TEACHERS = 'TEACHERS',
+}
+
+export class TransferScheduleAcademicYearDataDto {
+  @ApiProperty()
+  @IsUUID()
+  sourceAcademicYearId: string;
+
+  @ApiProperty({ enum: ScheduleAcademicYearTransferSection, isArray: true })
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayUnique()
+  @IsEnum(ScheduleAcademicYearTransferSection, { each: true })
+  sections: ScheduleAcademicYearTransferSection[];
 }
 
 export class CreateScheduleTeacherDto {
@@ -367,7 +396,7 @@ export class CreateScheduleLessonDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsUUID()
-  noteId?: string;
+  noteId?: string | null;
 }
 
 export class UpdateScheduleLessonDto {
@@ -425,7 +454,7 @@ export class UpdateScheduleLessonDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsUUID()
-  noteId?: string;
+  noteId?: string | null;
 }
 
 export interface ScheduleLessonFilters {

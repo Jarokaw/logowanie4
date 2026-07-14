@@ -1,4 +1,4 @@
-import { BelongsTo, Column, DataType, Model, Table } from "sequelize-typescript";
+import { BelongsTo, Column, DataType, ForeignKey, Model, Table } from "sequelize-typescript";
 import { RoleEnum } from "./role.enum";
 import { User } from "src/users/models/users.model";
 
@@ -19,7 +19,13 @@ export class Role extends Model<Role> {
     })
     declare role: RoleEnum;
 
+    @ForeignKey(() => User)
+    @Column({
+        type: DataType.UUID,
+        allowNull:false
+    })
     declare idUser: string;
+
     @BelongsTo(() => User, 'idUser')
     declare user: User;
      

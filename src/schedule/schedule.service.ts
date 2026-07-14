@@ -22,7 +22,9 @@ import {
   CreateScheduleTeacherDto,
   CreateScheduleTeacherSubjectDto,
   ImportScheduleAcademicYearBackupDto,
+  ScheduleAcademicYearTransferSection,
   ScheduleLessonFilters,
+  TransferScheduleAcademicYearDataDto,
   UpdateScheduleAcademicGroupDto,
   UpdateScheduleAcademicYearDto,
   UpdateScheduleClassTypeDto,
@@ -124,6 +126,19 @@ type BackupEnumRow = {
   enumLabel: string;
 };
 
+type AcademicYearTransferDefinition = {
+  section: ScheduleAcademicYearTransferSection;
+  label: string;
+  tables: string[];
+};
+
+type AcademicYearTransferTableStatus = {
+  section: ScheduleAcademicYearTransferSection;
+  label: string;
+  tableName: string;
+  count: number;
+};
+
 @Injectable()
 export class ScheduleService implements OnModuleInit {
   private readonly lessonMinutes = 45;
@@ -160,6 +175,7 @@ export class ScheduleService implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     await this.ensureAcademicYearActivityColumns();
+    await this.ensureScheduleAcademicGroupLevelSupportsWorkshop(this.sequelize);
     await this.ensureScheduleAcademicGroupStudyModeColumn(this.sequelize);
     await this.seedDefaultDictionaries();
   }
@@ -360,6 +376,92 @@ export class ScheduleService implements OnModuleInit {
       );
     } finally {
       await importDatabase.close();
+    }
+  }
+
+  async transferAcademicYearData(
+    targetAcademicYearId: string,
+    dto: TransferScheduleAcademicYearDataDto,
+  ) {
+    const targetAcademicYear = await this.findActiveAcademicYear(targetAcademicYearId);
+    const sourceAcademicYear = await this.findActiveAcademicYear(dto.sourceAcademicYearId);
+    if (sourceAcademicYear.id === targetAcademicYear.id) {
+      throw new BadRequestException('Baza zrodlowa musi byc inna niz baza docelowa.');
+    }
+
+    const transferDefinitions = this.academicYearTransferDefinitionsFor(dto.sections);
+    const sourceDatabaseName = this.validateAcademicYearDatabaseName(sourceAcademicYear.name);
+    const targetDatabaseName = this.validateAcademicYearDatabaseName(targetAcademicYear.name);
+
+    await Promise.all([
+      this.syncAcademicYearScheduleTables(sourceDatabaseName),
+      this.syncAcademicYearScheduleTables(targetDatabaseName),
+    ]);
+    await this.closeCachedAcademicYearDatabase(targetDatabaseName);
+
+    const sourceDatabase = this.createAcademicYearSequelize(sourceDatabaseName);
+    const targetDatabase = this.createAcademicYearSequelize(targetDatabaseName);
+    let transaction: any = null;
+
+    try {
+      await Promise.all([sourceDatabase.authenticate(), targetDatabase.authenticate()]);
+      const nonEmptyTables = await this.findNonEmptyAcademicYearTransferTables(
+        targetDatabase,
+        transferDefinitions,
+      );
+      if (nonEmptyTables.length > 0) {
+        throw new ConflictException(
+          `Nie wykonano transferu. Tabele docelowe nie sa puste: ${nonEmptyTables
+            .map((table) => `${table.label} (${table.tableName}: ${table.count})`)
+            .join(', ')}.`,
+        );
+      }
+
+      transaction = await targetDatabase.transaction();
+      const transferred = [];
+      for (const definition of this.sortAcademicYearTransferDefinitions(transferDefinitions)) {
+        let rows = 0;
+        for (const tableName of definition.tables) {
+          rows += await this.copyAcademicYearTransferTable(
+            sourceDatabase,
+            targetDatabase,
+            tableName,
+            transaction,
+          );
+        }
+
+        transferred.push({
+          section: definition.section,
+          label: definition.label,
+          tables: definition.tables,
+          rows,
+        });
+      }
+
+      await transaction.commit();
+      transaction = null;
+      await this.closeCachedAcademicYearDatabase(targetDatabaseName);
+
+      return {
+        sourceAcademicYear,
+        targetAcademicYear,
+        transferred,
+        totalRows: transferred.reduce((sum, item) => sum + item.rows, 0),
+      };
+    } catch (error) {
+      if (transaction) {
+        await transaction.rollback();
+      }
+      if (error instanceof BadRequestException || error instanceof ConflictException) {
+        throw error;
+      }
+
+      throw new BadRequestException(
+        `Nie udalo sie wykonac transferu danych. ${this.databaseErrorText(error)}`,
+      );
+    } finally {
+      await sourceDatabase.close();
+      await targetDatabase.close();
     }
   }
 
@@ -805,6 +907,8 @@ export class ScheduleService implements OnModuleInit {
     if (!lesson) {
       throw new NotFoundException('Nie znaleziono zajęć.');
     }
+    const noteIdWasProvided = Object.prototype.hasOwnProperty.call(dto, 'noteId');
+    const updatePayload = noteIdWasProvided ? { ...dto, noteId: dto.noteId || null } : dto;
 
     const nextLesson: LessonLike = {
       date: dto.date ?? lesson.date,
@@ -816,12 +920,12 @@ export class ScheduleService implements OnModuleInit {
       roomId: dto.roomId ?? lesson.roomId,
       groupId: dto.groupId ?? lesson.groupId,
       classTypeId: dto.classTypeId ?? lesson.classTypeId,
-      noteId: dto.noteId ?? lesson.noteId,
+      noteId: noteIdWasProvided ? dto.noteId || null : lesson.noteId,
     };
 
     await this.validateLessonReferences(models, nextLesson);
     await this.assertNoLessonConflicts(models, nextLesson, id);
-    await lesson.update(dto);
+    await lesson.update(updatePayload);
     return this.findLesson(id);
   }
 
@@ -1130,6 +1234,18 @@ export class ScheduleService implements OnModuleInit {
     }
   }
 
+  private createAcademicYearSequelize(databaseName: string): Sequelize {
+    return new Sequelize({
+      dialect: 'postgres',
+      host: process.env.DB_HOST,
+      port: Number(process.env.DB_PORT),
+      username: process.env.DB_USERNAME,
+      password: process.env.DB_PASSWORD,
+      database: databaseName,
+      logging: false,
+    });
+  }
+
   private async createDatabaseBackupSql(
     sequelize: Sequelize,
     databaseName: string,
@@ -1212,6 +1328,274 @@ export class ScheduleService implements OnModuleInit {
     } catch {
       return;
     }
+  }
+
+  private academicYearTransferDefinitions(): AcademicYearTransferDefinition[] {
+    return [
+      {
+        section: ScheduleAcademicYearTransferSection.LESSONS,
+        label: 'Lista zajec',
+        tables: ['schedule_lessons'],
+      },
+      {
+        section: ScheduleAcademicYearTransferSection.STUDY_TRACKS,
+        label: 'Toki',
+        tables: ['schedule_study_tracks', 'schedule_study_track_specializations'],
+      },
+      {
+        section: ScheduleAcademicYearTransferSection.TEACHER_SUBJECTS,
+        label: 'Powiazania Wykladowca->przedmiot',
+        tables: ['schedule_teacher_subjects'],
+      },
+      {
+        section: ScheduleAcademicYearTransferSection.COURSE_TEACHERS,
+        label: 'Powiazania Kierunek->wykladowca',
+        tables: ['schedule_course_teachers'],
+      },
+      {
+        section: ScheduleAcademicYearTransferSection.GROUPS,
+        label: 'Kierunki i grupy',
+        tables: ['schedule_academic_groups'],
+      },
+      {
+        section: ScheduleAcademicYearTransferSection.SUBJECTS,
+        label: 'Przedmioty',
+        tables: ['schedule_subjects'],
+      },
+      {
+        section: ScheduleAcademicYearTransferSection.NOTES,
+        label: 'Uwagi',
+        tables: ['schedule_notes'],
+      },
+      {
+        section: ScheduleAcademicYearTransferSection.LOCATIONS,
+        label: 'Budynki i sale',
+        tables: ['schedule_locations'],
+      },
+      {
+        section: ScheduleAcademicYearTransferSection.CLASS_TYPES,
+        label: 'Forma zajec',
+        tables: ['schedule_class_types'],
+      },
+      {
+        section: ScheduleAcademicYearTransferSection.TEACHERS,
+        label: 'Wykladowcy',
+        tables: ['schedule_teachers'],
+      },
+    ];
+  }
+
+  private academicYearTransferDefinitionsFor(
+    sections: ScheduleAcademicYearTransferSection[],
+  ): AcademicYearTransferDefinition[] {
+    const requestedSections = new Set(sections ?? []);
+    const definitions = this.academicYearTransferDefinitions().filter((definition) =>
+      requestedSections.has(definition.section),
+    );
+
+    if (definitions.length === 0) {
+      throw new BadRequestException('Wybierz przynajmniej jedna sekcje do transferu.');
+    }
+
+    return definitions;
+  }
+
+  private sortAcademicYearTransferDefinitions(
+    definitions: AcademicYearTransferDefinition[],
+  ): AcademicYearTransferDefinition[] {
+    const order = [
+      ScheduleAcademicYearTransferSection.SUBJECTS,
+      ScheduleAcademicYearTransferSection.TEACHERS,
+      ScheduleAcademicYearTransferSection.CLASS_TYPES,
+      ScheduleAcademicYearTransferSection.NOTES,
+      ScheduleAcademicYearTransferSection.LOCATIONS,
+      ScheduleAcademicYearTransferSection.GROUPS,
+      ScheduleAcademicYearTransferSection.STUDY_TRACKS,
+      ScheduleAcademicYearTransferSection.TEACHER_SUBJECTS,
+      ScheduleAcademicYearTransferSection.COURSE_TEACHERS,
+      ScheduleAcademicYearTransferSection.LESSONS,
+    ];
+
+    return [...definitions].sort(
+      (first, second) => order.indexOf(first.section) - order.indexOf(second.section),
+    );
+  }
+
+  private async findNonEmptyAcademicYearTransferTables(
+    sequelize: Sequelize,
+    definitions: AcademicYearTransferDefinition[],
+  ): Promise<AcademicYearTransferTableStatus[]> {
+    const nonEmptyTables: AcademicYearTransferTableStatus[] = [];
+    for (const definition of definitions) {
+      for (const tableName of definition.tables) {
+        const [row] = await sequelize.query<{ count: string | number }>(
+          `SELECT COUNT(*)::int AS "count" FROM ${this.qualifiedSqlIdentifier(
+            'public',
+            tableName,
+          )}`,
+          { type: QueryTypes.SELECT },
+        );
+        const count = Number(row?.count ?? 0);
+        if (count > 0) {
+          nonEmptyTables.push({
+            section: definition.section,
+            label: definition.label,
+            tableName,
+            count,
+          });
+        }
+      }
+    }
+
+    return nonEmptyTables;
+  }
+
+  private async copyAcademicYearTransferTable(
+    sourceDatabase: Sequelize,
+    targetDatabase: Sequelize,
+    tableName: string,
+    transaction: any,
+  ): Promise<number> {
+    const columns = await this.findCommonTransferColumns(sourceDatabase, targetDatabase, tableName);
+    if (columns.length === 0) {
+      throw new BadRequestException(`Tabela ${tableName} nie ma kolumn do transferu.`);
+    }
+
+    const rows = await this.findTransferSourceRows(sourceDatabase, tableName, columns);
+    if (rows.length === 0) {
+      return 0;
+    }
+
+    if (columns.some((column) => column.columnName === 'parentId')) {
+      await this.insertHierarchicalTransferRows(targetDatabase, tableName, columns, rows, transaction);
+      return rows.length;
+    }
+
+    for (const row of rows) {
+      await this.insertTransferRow(targetDatabase, tableName, columns, row, transaction);
+    }
+
+    return rows.length;
+  }
+
+  private async findCommonTransferColumns(
+    sourceDatabase: Sequelize,
+    targetDatabase: Sequelize,
+    tableName: string,
+  ): Promise<BackupTableColumn[]> {
+    const [sourceColumns, targetColumns] = await Promise.all([
+      this.findBackupTableColumns(sourceDatabase, tableName),
+      this.findBackupTableColumns(targetDatabase, tableName),
+    ]);
+    if (sourceColumns.length === 0) {
+      throw new BadRequestException(`Baza zrodlowa nie zawiera tabeli ${tableName}.`);
+    }
+    if (targetColumns.length === 0) {
+      throw new BadRequestException(`Baza docelowa nie zawiera tabeli ${tableName}.`);
+    }
+
+    const sourceColumnNames = new Set(sourceColumns.map((column) => column.columnName));
+    const columns = targetColumns.filter((column) => sourceColumnNames.has(column.columnName));
+    const missingRequiredColumns = targetColumns.filter(
+      (column) =>
+        !sourceColumnNames.has(column.columnName) &&
+        column.isNullable === 'NO' &&
+        !column.columnDefault,
+    );
+
+    if (missingRequiredColumns.length > 0) {
+      throw new BadRequestException(
+        `Tabela ${tableName} w bazie zrodlowej nie zawiera wymaganych kolumn: ${missingRequiredColumns
+          .map((column) => column.columnName)
+          .join(', ')}.`,
+      );
+    }
+
+    return columns;
+  }
+
+  private async findTransferSourceRows(
+    sourceDatabase: Sequelize,
+    tableName: string,
+    columns: BackupTableColumn[],
+  ): Promise<Record<string, unknown>[]> {
+    const tableIdentifier = this.qualifiedSqlIdentifier('public', tableName);
+    const columnList = columns
+      .map((column) => this.quoteSqlIdentifier(column.columnName))
+      .join(', ');
+    const orderBy = this.transferTableOrderBy(columns);
+
+    return sourceDatabase.query<Record<string, unknown>>(
+      `SELECT ${columnList} FROM ${tableIdentifier}${orderBy}`,
+      { type: QueryTypes.SELECT },
+    );
+  }
+
+  private transferTableOrderBy(columns: BackupTableColumn[]): string {
+    if (columns.some((column) => column.columnName === 'id')) {
+      return ` ORDER BY ${this.quoteSqlIdentifier('id')}`;
+    }
+    if (columns.some((column) => column.columnName === 'createdAt')) {
+      return ` ORDER BY ${this.quoteSqlIdentifier('createdAt')}`;
+    }
+
+    return '';
+  }
+
+  private async insertHierarchicalTransferRows(
+    targetDatabase: Sequelize,
+    tableName: string,
+    columns: BackupTableColumn[],
+    rows: Record<string, unknown>[],
+    transaction: any,
+  ): Promise<void> {
+    const pendingRows = [...rows];
+    const insertedIds = new Set<string>();
+
+    while (pendingRows.length > 0) {
+      const readyRows = pendingRows.filter((row) => {
+        const parentId = row.parentId;
+        return !parentId || insertedIds.has(String(parentId));
+      });
+
+      if (readyRows.length === 0) {
+        throw new BadRequestException(
+          `Nie udalo sie ustalic kolejnosci transferu tabeli ${tableName}. Sprawdz powiazania nadrzedne.`,
+        );
+      }
+
+      const readyRowReferences = new Set(readyRows);
+      for (const row of readyRows) {
+        await this.insertTransferRow(targetDatabase, tableName, columns, row, transaction);
+        if (row.id) {
+          insertedIds.add(String(row.id));
+        }
+      }
+
+      for (let index = pendingRows.length - 1; index >= 0; index -= 1) {
+        if (readyRowReferences.has(pendingRows[index])) {
+          pendingRows.splice(index, 1);
+        }
+      }
+    }
+  }
+
+  private async insertTransferRow(
+    targetDatabase: Sequelize,
+    tableName: string,
+    columns: BackupTableColumn[],
+    row: Record<string, unknown>,
+    transaction: any,
+  ): Promise<void> {
+    const tableIdentifier = this.qualifiedSqlIdentifier('public', tableName);
+    const columnList = columns
+      .map((column) => this.quoteSqlIdentifier(column.columnName))
+      .join(', ');
+    const values = columns.map((column) => this.sqlLiteral(row[column.columnName])).join(', ');
+    await targetDatabase.query(
+      `INSERT INTO ${tableIdentifier} (${columnList}) VALUES (${values})`,
+      { transaction },
+    );
   }
 
   private databaseErrorText(error: unknown): string {
@@ -1537,6 +1921,21 @@ END $$;`,
     );
   }
 
+  private async ensureScheduleAcademicGroupLevelSupportsWorkshop(sequelize: Sequelize): Promise<void> {
+    try {
+      await sequelize.query(
+        `ALTER TYPE "enum_schedule_academic_groups_level"
+         ADD VALUE IF NOT EXISTS '${ScheduleGroupLevel.WORKSHOP}'`,
+      );
+    } catch (error) {
+      const databaseError = error as { parent?: { code?: string }; original?: { code?: string } };
+      const code = databaseError.parent?.code ?? databaseError.original?.code;
+      if (code !== '42704') {
+        throw error;
+      }
+    }
+  }
+
   private async ensureScheduleAcademicGroupStudyModeColumn(sequelize: Sequelize): Promise<void> {
     await sequelize.query(
       `ALTER TABLE "schedule_academic_groups"
@@ -1847,7 +2246,7 @@ END $$;`,
       throw new ConflictException('Kierunek nie może mieć elementu nadrzędnego.');
     }
     if (dto.level !== ScheduleGroupLevel.COURSE && !dto.parentId) {
-      throw new ConflictException('Specjalność albo grupa musi mieć element nadrzędny.');
+      throw new ConflictException('Specjalność, grupa albo warsztat musi mieć element nadrzędny.');
     }
     if (!dto.parentId) {
       return;
@@ -1862,6 +2261,9 @@ END $$;`,
     }
     if (dto.level === ScheduleGroupLevel.GROUP && parent.level !== ScheduleGroupLevel.SPECIALIZATION) {
       throw new ConflictException('Grupa musi należeć do specjalności.');
+    }
+    if (dto.level === ScheduleGroupLevel.WORKSHOP && parent.level !== ScheduleGroupLevel.GROUP) {
+      throw new ConflictException('Warsztat musi należeć do grupy.');
     }
   }
 
@@ -1892,8 +2294,11 @@ END $$;`,
     if (dto.level === ScheduleGroupLevel.SPECIALIZATION) {
       throw new ConflictException('Specjalnosc o podanej nazwie juz istnieje w tym kierunku.');
     }
+    if (dto.level === ScheduleGroupLevel.GROUP) {
+      throw new ConflictException('Grupa o podanej nazwie juz istnieje w tej specjalnosci.');
+    }
 
-    throw new ConflictException('Grupa o podanej nazwie juz istnieje w tej specjalnosci.');
+    throw new ConflictException('Warsztat o podanej nazwie juz istnieje w tej grupie.');
   }
 
   private async validateStudyTrackCourse(

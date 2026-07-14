@@ -7,10 +7,14 @@ import { User } from './models/users.model';
 import { UserRepository } from './repositories/user.repositories';
 import { UserMapper } from './mappers/user.mapper';
 import * as bcrypt from 'bcrypt';
+import { Role } from 'src/role/role.model';
 
 @Injectable()
 export class UsersService {
-    constructor(private readonly userRepository: UserRepository) {}
+    constructor(
+        private readonly userRepository: UserRepository,
+        @InjectModel(Role) private readonly roleRepository: typeof Role
+    ) {}
     
     async findAll(): Promise<ReturnUserDto[]> {
         try {
@@ -46,9 +50,13 @@ export class UsersService {
 
     async createUser(dto: CreateUserDto):Promise<ReturnUserDto> {
         try {
+            const { role, ...userDto } = dto;
             const hashed = await bcrypt.hash(dto.password, 10);
-            const user = await this.userRepository.create({ ...dto, password: hashed });
-            return user;
+            const user = await this.userRepository.create({ ...userDto, password: hashed });
+            if (role) {
+                await this.roleRepository.create({ role, idUser: user.id });
+            }
+            return this.findOne(user.id);
         } catch (error) {
             throw error;
         }
@@ -81,9 +89,23 @@ export class UsersService {
             if (!user) {
                 throw new UserNotFoundException(id);
             }
-            user.name = dto.name;
+            if (dto.name !== undefined) {
+                user.name = dto.name;
+            }
+            if (dto.password) {
+                user.password = await bcrypt.hash(dto.password, 10);
+            }
             await user.save();
-            return user;
+            if (dto.role) {
+                const [role] = user.role ?? [];
+                if (role) {
+                    role.role = dto.role;
+                    await role.save();
+                } else {
+                    await this.roleRepository.create({ role: dto.role, idUser: user.id });
+                }
+            }
+            return this.findOne(id);
         } catch(error) {
             throw error;
         }

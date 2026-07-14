@@ -28,6 +28,7 @@ import {
   CreateScheduleTeacherSubjectDto,
   ImportScheduleAcademicYearBackupDto,
   ScheduleLessonFilters,
+  TransferScheduleAcademicYearDataDto,
   UpdateScheduleAcademicGroupDto,
   UpdateScheduleAcademicYearDto,
   UpdateScheduleClassTypeDto,
@@ -131,6 +132,15 @@ export class ScheduleController {
     @Body() dto: ImportScheduleAcademicYearBackupDto,
   ) {
     return this.scheduleService.importAcademicYearDatabase(id, dto);
+  }
+
+  @Post('academic-years/:id/transfer')
+  @ApiOperation({ summary: 'Transfer selected schedule data between academic year databases' })
+  transferAcademicYearData(
+    @Param('id') id: string,
+    @Body() dto: TransferScheduleAcademicYearDataDto,
+  ) {
+    return this.scheduleService.transferAcademicYearData(id, dto);
   }
 
   @Get('study-tracks')
