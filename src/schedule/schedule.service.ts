@@ -532,6 +532,52 @@ export class ScheduleService implements OnModuleInit {
 
   async findLessons(filters: ScheduleLessonFilters = {}) {
     const models = await this.getScheduleModels();
+    return this.findLessonsForModels(models, filters);
+  }
+
+  async findStudentDictionaries() {
+    const models = await this.getStudentScheduleModels();
+    const [groups, teachers] = await Promise.all([
+      models.groupModel.findAll({
+        where: { active: true },
+        order: [['name', 'ASC']],
+      }),
+      models.teacherModel.findAll({
+        where: { active: true },
+        order: [
+          ['lastName', 'ASC'],
+          ['firstName', 'ASC'],
+        ],
+      }),
+    ]);
+    const studyModes = Array.from(
+      new Set(
+        groups
+          .filter(
+            (group) =>
+              group.level === ScheduleGroupLevel.COURSE &&
+              group.studyMode !== ScheduleStudyMode.UNASSIGNED,
+          )
+          .map((group) => group.studyMode),
+      ),
+    );
+
+    return {
+      groups,
+      teachers: teachers.map((teacher) => this.mapTeacher(teacher)),
+      studyModes,
+    };
+  }
+
+  async findStudentLessons(filters: ScheduleLessonFilters = {}) {
+    const models = await this.getStudentScheduleModels();
+    return this.findLessonsForModels(models, filters);
+  }
+
+  private async findLessonsForModels(
+    models: ScheduleDatabaseModels,
+    filters: ScheduleLessonFilters = {},
+  ) {
     const where: any = {};
     if (filters.from || filters.to) {
       where.date = {
@@ -2000,6 +2046,19 @@ END $$;`,
 
     if (!activeAcademicYear) {
       return this.mainScheduleModels();
+    }
+
+    return this.getAcademicYearScheduleModels(activeAcademicYear.name);
+  }
+
+  private async getStudentScheduleModels(): Promise<ScheduleDatabaseModels> {
+    const activeAcademicYear = await this.academicYearModel.findOne({
+      where: { active: true, activeForStudent: true },
+      order: [['updatedAt', 'DESC']],
+    });
+
+    if (!activeAcademicYear) {
+      throw new NotFoundException('Nie wybrano aktywnej bazy dla studentow.');
     }
 
     return this.getAcademicYearScheduleModels(activeAcademicYear.name);

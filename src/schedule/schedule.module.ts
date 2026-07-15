@@ -14,6 +14,7 @@ import { ScheduleTeacherSubject } from './models/schedule-teacher-subject.model'
 import { ScheduleTeacher } from './models/schedule-teacher.model';
 import { ScheduleController } from './schedule.controller';
 import { ScheduleService } from './schedule.service';
+import { StudentScheduleController } from './student-schedule.controller';
 
 @Module({
   imports: [
@@ -32,7 +33,7 @@ import { ScheduleService } from './schedule.service';
       ScheduleLesson,
     ]),
   ],
-  controllers: [ScheduleController],
+  controllers: [ScheduleController, StudentScheduleController],
   providers: [ScheduleService],
 })
 export class ScheduleModule {}
