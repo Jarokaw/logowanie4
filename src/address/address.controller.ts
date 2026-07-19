@@ -1,10 +1,13 @@
 import { Body, Controller, Get, Param, Post, Put } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { CreateAddressDto, EditAddressDto, ReturnAddressDto } from './address.dto';
 import { AddressService } from './address.service';
+import { Auth } from 'src/auth/auth.decorator';
 
 @Controller('address')
 @ApiTags('Address API')
+@ApiBearerAuth('JWT-auth')
+@Auth()
 export class AddressController {
     constructor(private readonly addressService:AddressService) {}
 
