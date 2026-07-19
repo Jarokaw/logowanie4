@@ -6,8 +6,8 @@ import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagg
 import { Auth } from 'src/auth/auth.decorator';
 
 @Controller('users')
-@ApiBearerAuth('JWT-auth')
 @ApiTags('Users API')
+@ApiBearerAuth('JWT-auth')
 export class UsersController {
     constructor(private readonly usersService: UsersService) {}
 
