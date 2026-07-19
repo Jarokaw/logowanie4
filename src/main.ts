@@ -18,6 +18,7 @@ async function bootstrap() {
     'http://192.168.0.209:4201',
     'http://192.168.11.161:4200',
     'http://192.168.11.161:4201',
+    'http://10.0.5.28:4200',
   ];
 
   app.enableCors({
