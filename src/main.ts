@@ -10,6 +10,8 @@ async function bootstrap() {
   app.use(json({ limit: '50mb' }));
   app.use(urlencoded({ extended: true, limit: '50mb' }));
   const allowedOrigins = [
+    'https://mentor.ur.edu.pl',
+    'https://www.mentor.ur.edu.pl',
     'http://localhost:4200',
     'http://localhost:4201',
     'http://127.0.0.1:4200',
