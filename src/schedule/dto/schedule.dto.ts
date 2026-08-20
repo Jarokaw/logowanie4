@@ -197,6 +197,63 @@ export class UpdateScheduleClassTypeDto {
   active?: boolean;
 }
 
+export class CreateScheduleHolidayDto {
+  @ApiProperty({ example: '2026-12-24' })
+  @IsDateString()
+  date: string;
+
+  @ApiProperty({ example: 'Dzień wolny od zajęć' })
+  @IsString()
+  @Length(1, 100)
+  name: string;
+}
+
+export class CreateScheduleLessonTimeShortcutDto {
+  @ApiProperty({ example: 8 })
+  @IsInt()
+  @Min(6)
+  @Max(22)
+  startHour: number;
+
+  @ApiProperty({ example: 0 })
+  @IsInt()
+  @Min(0)
+  @Max(59)
+  startMinute: number;
+
+  @ApiProperty({ example: 2, description: 'Jedna jednostka trwa 45 minut.' })
+  @IsInt()
+  @Min(1)
+  @Max(9)
+  lessonHours: number;
+}
+
+export class UpdateScheduleLessonTimeShortcutDto extends CreateScheduleLessonTimeShortcutDto {}
+
+export class ReorderScheduleLessonTimeShortcutsDto {
+  @ApiProperty({ type: [String] })
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  shortcutIds: string[];
+}
+
+export class CreateScheduleLessonDateShortcutDto {
+  @ApiProperty({ example: '2026-10-05' })
+  @IsDateString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  date: string;
+
+  @ApiProperty({ example: 1, minimum: 1, maximum: 2 })
+  @IsInt()
+  @Min(1)
+  @Max(2)
+  week: number;
+}
+
+export class UpdateScheduleLessonDateShortcutDto extends CreateScheduleLessonDateShortcutDto {}
+
 export class CreateScheduleNoteDto {
   @ApiProperty()
   @IsString()

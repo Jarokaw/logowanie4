@@ -3,7 +3,10 @@ import { SequelizeModule } from '@nestjs/sequelize';
 import { ScheduleAcademicGroup } from './models/schedule-academic-group.model';
 import { ScheduleAcademicYear } from './models/schedule-academic-year.model';
 import { ScheduleClassType } from './models/schedule-class-type.model';
+import { ScheduleHoliday } from './models/schedule-holiday.model';
 import { ScheduleLesson } from './models/schedule-lesson.model';
+import { ScheduleLessonDateShortcut } from './models/schedule-lesson-date-shortcut.model';
+import { ScheduleLessonTimeShortcut } from './models/schedule-lesson-time-shortcut.model';
 import { ScheduleLocation } from './models/schedule-location.model';
 import { ScheduleNote } from './models/schedule-note.model';
 import { ScheduleCourseTeacher } from './models/schedule-course-teacher.model';
@@ -24,6 +27,7 @@ import { StudentScheduleController } from './student-schedule.controller';
       ScheduleCourseTeacher,
       ScheduleTeacherSubject,
       ScheduleClassType,
+      ScheduleHoliday,
       ScheduleNote,
       ScheduleLocation,
       ScheduleAcademicGroup,
@@ -31,6 +35,8 @@ import { StudentScheduleController } from './student-schedule.controller';
       ScheduleStudyTrackSpecialization,
       ScheduleAcademicYear,
       ScheduleLesson,
+      ScheduleLessonDateShortcut,
+      ScheduleLessonTimeShortcut,
     ]),
   ],
   controllers: [ScheduleController, StudentScheduleController],

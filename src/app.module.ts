@@ -16,7 +16,10 @@ import { ScheduleModule } from './schedule/schedule.module';
 import { ScheduleAcademicGroup } from './schedule/models/schedule-academic-group.model';
 import { ScheduleAcademicYear } from './schedule/models/schedule-academic-year.model';
 import { ScheduleClassType } from './schedule/models/schedule-class-type.model';
+import { ScheduleHoliday } from './schedule/models/schedule-holiday.model';
 import { ScheduleLesson } from './schedule/models/schedule-lesson.model';
+import { ScheduleLessonDateShortcut } from './schedule/models/schedule-lesson-date-shortcut.model';
+import { ScheduleLessonTimeShortcut } from './schedule/models/schedule-lesson-time-shortcut.model';
 import { ScheduleLocation } from './schedule/models/schedule-location.model';
 import { ScheduleNote } from './schedule/models/schedule-note.model';
 import { ScheduleCourseTeacher } from './schedule/models/schedule-course-teacher.model';
@@ -46,6 +49,7 @@ import { ScheduleTeacher } from './schedule/models/schedule-teacher.model';
       ScheduleCourseTeacher,
       ScheduleTeacherSubject,
       ScheduleClassType,
+      ScheduleHoliday,
       ScheduleNote,
       ScheduleLocation,
       ScheduleAcademicGroup,
@@ -53,6 +57,8 @@ import { ScheduleTeacher } from './schedule/models/schedule-teacher.model';
       ScheduleStudyTrackSpecialization,
       ScheduleAcademicYear,
       ScheduleLesson,
+      ScheduleLessonDateShortcut,
+      ScheduleLessonTimeShortcut,
     ], // rejestracja modeli
     autoLoadModels: true, // automatyczne ładowanie modeli
     synchronize: true, // synchronizacja bazy danych z modelami (nie zalecane w produkcji)

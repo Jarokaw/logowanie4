@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
   OnModuleInit,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/sequelize';
 import { DataTypes, Op, QueryTypes } from 'sequelize';
@@ -13,7 +14,10 @@ import {
   CreateScheduleAcademicYearDto,
   CreateScheduleClassTypeDto,
   CreateScheduleCourseTeacherDto,
+  CreateScheduleHolidayDto,
+  CreateScheduleLessonDateShortcutDto,
   CreateScheduleLessonDto,
+  CreateScheduleLessonTimeShortcutDto,
   CreateScheduleLocationDto,
   CreateScheduleNoteDto,
   CreateScheduleStudyTrackDto,
@@ -22,13 +26,16 @@ import {
   CreateScheduleTeacherDto,
   CreateScheduleTeacherSubjectDto,
   ImportScheduleAcademicYearBackupDto,
+  ReorderScheduleLessonTimeShortcutsDto,
   ScheduleAcademicYearTransferSection,
   ScheduleLessonFilters,
   TransferScheduleAcademicYearDataDto,
   UpdateScheduleAcademicGroupDto,
   UpdateScheduleAcademicYearDto,
   UpdateScheduleClassTypeDto,
+  UpdateScheduleLessonDateShortcutDto,
   UpdateScheduleLessonDto,
+  UpdateScheduleLessonTimeShortcutDto,
   UpdateScheduleLocationDto,
   UpdateScheduleNoteDto,
   UpdateScheduleStudyTrackDto,
@@ -43,6 +50,10 @@ import {
 import { ScheduleAcademicYear } from './models/schedule-academic-year.model';
 import { ScheduleClassType } from './models/schedule-class-type.model';
 import {
+  ScheduleHoliday,
+  ScheduleHolidaySource,
+} from './models/schedule-holiday.model';
+import {
   ScheduleLocation,
   ScheduleLocationType,
 } from './models/schedule-location.model';
@@ -51,6 +62,8 @@ import { ScheduleCourseTeacher } from './models/schedule-course-teacher.model';
 import { ScheduleStudyTrack } from './models/schedule-study-track.model';
 import { ScheduleStudyTrackSpecialization } from './models/schedule-study-track-specialization.model';
 import { ScheduleLesson } from './models/schedule-lesson.model';
+import { ScheduleLessonDateShortcut } from './models/schedule-lesson-date-shortcut.model';
+import { ScheduleLessonTimeShortcut } from './models/schedule-lesson-time-shortcut.model';
 import { ScheduleSubject } from './models/schedule-subject.model';
 import { ScheduleTeacherSubject } from './models/schedule-teacher-subject.model';
 import { ScheduleTeacher } from './models/schedule-teacher.model';
@@ -72,18 +85,83 @@ type LessonLike = Pick<
 type LocationLike = Pick<CreateScheduleLocationDto, 'name' | 'type' | 'parentId'>;
 type AcademicGroupLike = Pick<CreateScheduleAcademicGroupDto, 'name' | 'level' | 'parentId'>;
 type StudyTrackLike = Pick<CreateScheduleStudyTrackDto, 'name' | 'courseId'>;
+export type AcademicGroupDeletionChild = {
+  id: string;
+  name: string;
+  level: ScheduleGroupLevel;
+  studyMode: ScheduleStudyMode;
+  parentId?: string;
+  active: boolean;
+  ownLessonCount: number;
+  branchLessonCount: number;
+  children: AcademicGroupDeletionChild[];
+};
+export type AcademicGroupDeletionCheck = {
+  group: {
+    id: string;
+    name: string;
+    level: ScheduleGroupLevel;
+    studyMode: ScheduleStudyMode;
+    parentId?: string;
+    active: boolean;
+  };
+  children: AcademicGroupDeletionChild[];
+  ownLessonCount: number;
+  descendantLessonCount: number;
+  totalLessonCount: number;
+  descendantCount: number;
+  hasChildren: boolean;
+  canDelete: boolean;
+};
+export type AcademicGroupLessonDeletionStrategy = 'DELETE' | 'REASSIGN_UNASSIGNED';
+export type ClassTypeDeletionCheck = {
+  classType: {
+    id: string;
+    name: string;
+    active: boolean;
+  };
+  lessonCount: number;
+  canDelete: boolean;
+};
+export type ClassTypeLessonDeletionStrategy = 'DELETE' | 'REASSIGN_UNASSIGNED';
 type ScheduleDatabaseModels = {
   subjectModel: any;
   teacherModel: any;
   courseTeacherModel: any;
   teacherSubjectModel: any;
   classTypeModel: any;
+  holidayModel: any;
   noteModel: any;
   locationModel: any;
   groupModel: any;
   studyTrackModel: any;
   studyTrackSpecializationModel: any;
   lessonModel: any;
+  dateShortcutModel: any;
+  shortcutModel: any;
+};
+
+type NagerHoliday = {
+  date?: unknown;
+  name?: unknown;
+  countryCode?: unknown;
+};
+
+const POLISH_HOLIDAY_NAMES: Record<string, string> = {
+  "New Year's Day": 'Nowy Rok',
+  Epiphany: 'Święto Trzech Króli',
+  'Easter Sunday': 'Wielkanoc',
+  'Easter Monday': 'Poniedziałek Wielkanocny',
+  'May Day': 'Święto Pracy',
+  'Constitution Day': 'Święto Konstytucji 3 Maja',
+  Pentecost: 'Zielone Świątki',
+  'Corpus Christi': 'Boże Ciało',
+  'Assumption Day': 'Wniebowzięcie Najświętszej Maryi Panny',
+  "All Saints' Day": 'Wszystkich Świętych',
+  'Independence Day': 'Narodowe Święto Niepodległości',
+  'Christmas Eve': 'Wigilia Bożego Narodzenia',
+  'Christmas Day': 'Boże Narodzenie',
+  "St. Stephen's Day": 'Drugi dzień Bożego Narodzenia',
 };
 
 type CachedScheduleDatabase = {
@@ -157,6 +235,8 @@ export class ScheduleService implements OnModuleInit {
     private readonly teacherSubjectModel: typeof ScheduleTeacherSubject,
     @InjectModel(ScheduleClassType)
     private readonly classTypeModel: typeof ScheduleClassType,
+    @InjectModel(ScheduleHoliday)
+    private readonly holidayModel: typeof ScheduleHoliday,
     @InjectModel(ScheduleNote)
     private readonly noteModel: typeof ScheduleNote,
     @InjectModel(ScheduleLocation)
@@ -171,12 +251,18 @@ export class ScheduleService implements OnModuleInit {
     private readonly academicYearModel: typeof ScheduleAcademicYear,
     @InjectModel(ScheduleLesson)
     private readonly lessonModel: typeof ScheduleLesson,
+    @InjectModel(ScheduleLessonDateShortcut)
+    private readonly dateShortcutModel: typeof ScheduleLessonDateShortcut,
+    @InjectModel(ScheduleLessonTimeShortcut)
+    private readonly shortcutModel: typeof ScheduleLessonTimeShortcut,
   ) {}
 
   async onModuleInit(): Promise<void> {
     await this.ensureAcademicYearActivityColumns();
     await this.ensureScheduleAcademicGroupLevelSupportsWorkshop(this.sequelize);
     await this.ensureScheduleAcademicGroupStudyModeColumn(this.sequelize);
+    await this.ensureScheduleLessonTimeShortcutSortOrderColumn(this.sequelize);
+    await this.ensureScheduleHolidaySourceColumn(this.sequelize);
     await this.seedDefaultDictionaries();
   }
 
@@ -259,6 +345,226 @@ export class ScheduleService implements OnModuleInit {
     ]);
 
     return { lessons, subjects, teachers, rooms, groups };
+  }
+
+  async findHolidays(year: number, refreshFromApi = false) {
+    this.validateHolidayYear(year);
+    const models = await this.getScheduleModels();
+
+    if (!refreshFromApi) {
+      return {
+        year,
+        source: 'DATABASE',
+        updated: false,
+        holidays: await this.findStoredHolidays(models.holidayModel, year),
+      };
+    }
+
+    const downloadedHolidays = await this.downloadPolishHolidays(year);
+    const updated = await this.synchronizeAutomaticHolidays(
+      models.holidayModel,
+      year,
+      downloadedHolidays,
+    );
+
+    return {
+      year,
+      source: 'NAGER',
+      updated,
+      holidays: await this.findStoredHolidays(models.holidayModel, year),
+    };
+  }
+
+  async createManualHoliday(dto: CreateScheduleHolidayDto) {
+    this.validateManualHolidayDate(dto.date);
+    const name = dto.name.trim();
+    if (!name || name.length > 100) {
+      throw new BadRequestException('Opis swieta musi zawierac od 1 do 100 znakow.');
+    }
+
+    const models = await this.getScheduleModels();
+    const existingHoliday = await models.holidayModel.findOne({
+      where: {
+        date: dto.date,
+        name: { [Op.iLike]: name },
+      },
+    });
+    if (existingHoliday) {
+      throw new ConflictException('Takie swieto jest juz zapisane dla wybranego dnia.');
+    }
+
+    try {
+      return await models.holidayModel.create({
+        date: dto.date,
+        name,
+        source: ScheduleHolidaySource.MANUAL,
+      });
+    } catch (error) {
+      if ((error as { name?: string }).name === 'SequelizeUniqueConstraintError') {
+        throw new ConflictException('Takie swieto jest juz zapisane dla wybranego dnia.');
+      }
+      throw error;
+    }
+  }
+
+  async deleteManualHoliday(id: string) {
+    const models = await this.getScheduleModels();
+    const holiday = await models.holidayModel.findOne({
+      where: {
+        id,
+        source: ScheduleHolidaySource.MANUAL,
+      },
+    });
+    if (!holiday) {
+      throw new NotFoundException('Nie znaleziono recznie dodanego swieta.');
+    }
+
+    await holiday.destroy();
+    return { deleted: true, id };
+  }
+
+  async findLessonTimeShortcuts() {
+    const models = await this.getScheduleModels();
+    return models.shortcutModel.findAll({
+      order: [
+        ['sortOrder', 'ASC'],
+        ['startHour', 'ASC'],
+        ['startMinute', 'ASC'],
+        ['lessonHours', 'ASC'],
+      ],
+    });
+  }
+
+  async createLessonTimeShortcut(dto: CreateScheduleLessonTimeShortcutDto) {
+    const models = await this.getScheduleModels();
+    const existingShortcut = await models.shortcutModel.findOne({
+      where: {
+        startHour: dto.startHour,
+        startMinute: dto.startMinute,
+        lessonHours: dto.lessonHours,
+      },
+    });
+
+    if (existingShortcut) {
+      throw new ConflictException('Taki skrot czasu juz istnieje.');
+    }
+
+    const highestSortOrder = Number(
+      (await models.shortcutModel.max('sortOrder')) ?? -1,
+    );
+    return models.shortcutModel.create({
+      ...dto,
+      sortOrder: Number.isFinite(highestSortOrder) ? highestSortOrder + 1 : 0,
+    });
+  }
+
+  async reorderLessonTimeShortcuts(dto: ReorderScheduleLessonTimeShortcutsDto) {
+    const models = await this.getScheduleModels();
+    const shortcuts = await models.shortcutModel.findAll({ attributes: ['id'] });
+    const existingIds = new Set(shortcuts.map((shortcut) => shortcut.id));
+
+    if (
+      dto.shortcutIds.length !== shortcuts.length ||
+      dto.shortcutIds.some((id) => !existingIds.has(id))
+    ) {
+      throw new BadRequestException('Lista skrótów do uporządkowania jest nieprawidłowa.');
+    }
+
+    const transaction = await models.shortcutModel.sequelize.transaction();
+    try {
+      await Promise.all(
+        dto.shortcutIds.map((id, sortOrder) =>
+          models.shortcutModel.update(
+            { sortOrder },
+            { where: { id }, transaction },
+          ),
+        ),
+      );
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+
+    return this.findLessonTimeShortcuts();
+  }
+
+  async updateLessonTimeShortcut(
+    id: string,
+    dto: UpdateScheduleLessonTimeShortcutDto,
+  ) {
+    const models = await this.getScheduleModels();
+    const shortcut = await models.shortcutModel.findByPk(id);
+    if (!shortcut) {
+      throw new NotFoundException('Nie znaleziono skrótu czasu.');
+    }
+
+    const existingShortcut = await models.shortcutModel.findOne({
+      where: {
+        id: { [Op.ne]: id },
+        startHour: dto.startHour,
+        startMinute: dto.startMinute,
+        lessonHours: dto.lessonHours,
+      },
+    });
+
+    if (existingShortcut) {
+      throw new ConflictException('Taki skrót czasu już istnieje.');
+    }
+
+    await shortcut.update(dto);
+    return shortcut;
+  }
+
+  async deleteLessonTimeShortcut(id: string) {
+    const models = await this.getScheduleModels();
+    const shortcut = await models.shortcutModel.findByPk(id);
+    if (!shortcut) {
+      throw new NotFoundException('Nie znaleziono skrótu czasu.');
+    }
+
+    await shortcut.destroy();
+    return { deleted: true, id };
+  }
+
+  async findLessonDateShortcuts() {
+    const models = await this.getScheduleModels();
+    const shortcuts = await models.dateShortcutModel.findAll();
+    return this.sortLessonDateShortcuts(shortcuts);
+  }
+
+  async createLessonDateShortcut(dto: CreateScheduleLessonDateShortcutDto) {
+    const models = await this.getScheduleModels();
+    this.validateLessonDateShortcutDate(dto.date);
+    await this.validateUniqueLessonDateShortcut(models, dto.date, dto.week);
+    return models.dateShortcutModel.create(dto);
+  }
+
+  async updateLessonDateShortcut(
+    id: string,
+    dto: UpdateScheduleLessonDateShortcutDto,
+  ) {
+    const models = await this.getScheduleModels();
+    const shortcut = await models.dateShortcutModel.findByPk(id);
+    if (!shortcut) {
+      throw new NotFoundException('Nie znaleziono skrótu daty.');
+    }
+
+    this.validateLessonDateShortcutDate(dto.date);
+    await this.validateUniqueLessonDateShortcut(models, dto.date, dto.week, id);
+    await shortcut.update(dto);
+    return shortcut;
+  }
+
+  async deleteLessonDateShortcut(id: string) {
+    const models = await this.getScheduleModels();
+    const shortcut = await models.dateShortcutModel.findByPk(id);
+    if (!shortcut) {
+      throw new NotFoundException('Nie znaleziono skrótu daty.');
+    }
+
+    await shortcut.destroy();
+    return { deleted: true, id };
   }
 
   async findSubjects(teacherId?: string): Promise<ScheduleSubject[]> {
@@ -794,6 +1100,87 @@ export class ScheduleService implements OnModuleInit {
     return classType;
   }
 
+  async getClassTypeDeletionCheck(id: string): Promise<ClassTypeDeletionCheck> {
+    const models = await this.getScheduleModels();
+    return this.buildClassTypeDeletionCheck(models, id);
+  }
+
+  async deleteClassType(id: string, lessonStrategy?: string) {
+    const models = await this.getScheduleModels();
+    const deletionCheck = await this.buildClassTypeDeletionCheck(models, id);
+    const allowedStrategies: ClassTypeLessonDeletionStrategy[] = [
+      'DELETE',
+      'REASSIGN_UNASSIGNED',
+    ];
+    const strategy = lessonStrategy as ClassTypeLessonDeletionStrategy | undefined;
+
+    if (strategy && !allowedStrategies.includes(strategy)) {
+      throw new BadRequestException('Nieprawidlowa strategia obslugi zajec.');
+    }
+    if (deletionCheck.lessonCount > 0 && !strategy) {
+      throw new ConflictException({
+        code: 'CLASS_TYPE_HAS_LESSONS',
+        message: 'Forma zajec jest wykorzystywana w Planie zajec.',
+        deletionCheck,
+      });
+    }
+
+    const transaction = await models.classTypeModel.sequelize.transaction();
+    let deletedLessons = 0;
+    let reassignedLessons = 0;
+    let unassignedClassTypeId: string | null = null;
+
+    try {
+      if (deletionCheck.lessonCount > 0 && strategy === 'DELETE') {
+        deletedLessons = await models.lessonModel.destroy({
+          where: { classTypeId: id },
+          transaction,
+        });
+      }
+
+      if (deletionCheck.lessonCount > 0 && strategy === 'REASSIGN_UNASSIGNED') {
+        let unassignedClassType = await models.classTypeModel.findOne({
+          where: {
+            id: { [Op.ne]: id },
+            name: 'Nieprzydzielone',
+            active: true,
+          },
+          transaction,
+        });
+
+        if (!unassignedClassType) {
+          unassignedClassType = await models.classTypeModel.create(
+            { name: 'Nieprzydzielone', active: true },
+            { transaction },
+          );
+        }
+
+        unassignedClassTypeId = unassignedClassType.id;
+        [reassignedLessons] = await models.lessonModel.update(
+          { classTypeId: unassignedClassType.id },
+          { where: { classTypeId: id }, transaction },
+        );
+      }
+
+      await models.classTypeModel.update(
+        { active: false },
+        { where: { id, active: true }, transaction },
+      );
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+
+    return {
+      deleted: true,
+      id,
+      deletedLessons,
+      reassignedLessons,
+      unassignedClassTypeId,
+    };
+  }
+
   async createNote(dto: CreateScheduleNoteDto) {
     const models = await this.getScheduleModels();
     await this.validateUniqueNoteText(models, dto.text);
@@ -864,6 +1251,185 @@ export class ScheduleService implements OnModuleInit {
     await this.validateUniqueAcademicGroupName(models, nextGroup, id);
     await group.update(dto);
     return group;
+  }
+
+  async getGroupDeletionCheck(id: string): Promise<AcademicGroupDeletionCheck> {
+    const models = await this.getScheduleModels();
+    return this.buildAcademicGroupDeletionCheck(models, id);
+  }
+
+  async deleteGroup(id: string) {
+    const models = await this.getScheduleModels();
+    const deletionCheck = await this.buildAcademicGroupDeletionCheck(models, id);
+
+    if (deletionCheck.hasChildren) {
+      throw new ConflictException({
+        code: 'ACADEMIC_GROUP_HAS_CHILDREN',
+        message: 'Pozycja ma aktywne elementy podrzedne i nie moze zostac usunieta.',
+        deletionCheck,
+      });
+    }
+
+    if (deletionCheck.totalLessonCount > 0) {
+      throw new ConflictException({
+        code: 'ACADEMIC_GROUP_HAS_LESSONS',
+        message: 'Pozycja ma przypisane zajecia i nie moze zostac usunieta.',
+        deletionCheck,
+      });
+    }
+
+    const transaction = await models.groupModel.sequelize.transaction();
+    try {
+      if (deletionCheck.group.level === ScheduleGroupLevel.COURSE) {
+        const studyTracks = await models.studyTrackModel.findAll({
+          where: { courseId: id, active: true },
+          attributes: ['id'],
+          transaction,
+        });
+        const studyTrackIds = studyTracks.map((studyTrack) => studyTrack.id);
+
+        if (studyTrackIds.length > 0) {
+          await models.studyTrackSpecializationModel.update(
+            { active: false },
+            { where: { studyTrackId: { [Op.in]: studyTrackIds } }, transaction },
+          );
+          await models.studyTrackModel.update(
+            { active: false },
+            { where: { id: { [Op.in]: studyTrackIds } }, transaction },
+          );
+        }
+      } else if (deletionCheck.group.level === ScheduleGroupLevel.SPECIALIZATION) {
+        await models.studyTrackSpecializationModel.update(
+          { active: false },
+          { where: { specializationId: id }, transaction },
+        );
+      }
+
+      await models.groupModel.update(
+        { active: false },
+        { where: { id, active: true }, transaction },
+      );
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+
+    return { deleted: true, id };
+  }
+
+  async deleteGroupTree(id: string, lessonStrategy?: string) {
+    const models = await this.getScheduleModels();
+    const deletionCheck = await this.buildAcademicGroupDeletionCheck(models, id);
+    const allowedStrategies: AcademicGroupLessonDeletionStrategy[] = [
+      'DELETE',
+      'REASSIGN_UNASSIGNED',
+    ];
+    const strategy = lessonStrategy as AcademicGroupLessonDeletionStrategy | undefined;
+
+    if (strategy && !allowedStrategies.includes(strategy)) {
+      throw new BadRequestException('Nieprawidlowa strategia obslugi zajec.');
+    }
+    if (deletionCheck.totalLessonCount > 0 && !strategy) {
+      throw new ConflictException({
+        code: 'ACADEMIC_GROUP_TREE_HAS_LESSONS',
+        message: 'Usuwana galaz ma przypisane zajecia. Wybierz sposob ich obslugi.',
+        deletionCheck,
+      });
+    }
+
+    const groupIds = [
+      deletionCheck.group.id,
+      ...this.collectAcademicGroupDeletionChildIds(deletionCheck.children),
+    ];
+    const transaction = await models.groupModel.sequelize.transaction();
+    let deletedLessons = 0;
+    let reassignedLessons = 0;
+    let unassignedGroupId: string | null = null;
+
+    try {
+      if (deletionCheck.totalLessonCount > 0 && strategy === 'DELETE') {
+        deletedLessons = await models.lessonModel.destroy({
+          where: { groupId: { [Op.in]: groupIds } },
+          transaction,
+        });
+      }
+
+      if (deletionCheck.totalLessonCount > 0 && strategy === 'REASSIGN_UNASSIGNED') {
+        let unassignedGroup = await models.groupModel.findOne({
+          where: {
+            id: { [Op.notIn]: groupIds },
+            name: 'Nieprzydzielony',
+            level: ScheduleGroupLevel.COURSE,
+            active: true,
+          },
+          transaction,
+        });
+
+        if (!unassignedGroup) {
+          unassignedGroup = await models.groupModel.create(
+            {
+              name: 'Nieprzydzielony',
+              level: ScheduleGroupLevel.COURSE,
+              studyMode: ScheduleStudyMode.UNASSIGNED,
+              parentId: null,
+              active: true,
+            },
+            { transaction },
+          );
+        } else if (unassignedGroup.studyMode !== ScheduleStudyMode.UNASSIGNED) {
+          await unassignedGroup.update(
+            { studyMode: ScheduleStudyMode.UNASSIGNED },
+            { transaction },
+          );
+        }
+
+        unassignedGroupId = unassignedGroup.id;
+        [reassignedLessons] = await models.lessonModel.update(
+          { groupId: unassignedGroup.id },
+          { where: { groupId: { [Op.in]: groupIds } }, transaction },
+        );
+      }
+
+      const studyTracks = await models.studyTrackModel.findAll({
+        where: { courseId: { [Op.in]: groupIds }, active: true },
+        attributes: ['id'],
+        transaction,
+      });
+      const studyTrackIds = studyTracks.map((studyTrack) => studyTrack.id);
+      if (studyTrackIds.length > 0) {
+        await models.studyTrackSpecializationModel.update(
+          { active: false },
+          { where: { studyTrackId: { [Op.in]: studyTrackIds } }, transaction },
+        );
+        await models.studyTrackModel.update(
+          { active: false },
+          { where: { id: { [Op.in]: studyTrackIds } }, transaction },
+        );
+      }
+
+      await models.studyTrackSpecializationModel.update(
+        { active: false },
+        { where: { specializationId: { [Op.in]: groupIds } }, transaction },
+      );
+      await models.groupModel.update(
+        { active: false },
+        { where: { id: { [Op.in]: groupIds }, active: true }, transaction },
+      );
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+
+    return {
+      deleted: true,
+      id,
+      deletedGroupIds: groupIds,
+      deletedLessons,
+      reassignedLessons,
+      unassignedGroupId,
+    };
   }
 
   async createStudyTrack(dto: CreateScheduleStudyTrackDto) {
@@ -1163,6 +1729,25 @@ export class ScheduleService implements OnModuleInit {
     }
   }
 
+  private async buildClassTypeDeletionCheck(
+    models: ScheduleDatabaseModels,
+    id: string,
+  ): Promise<ClassTypeDeletionCheck> {
+    const classType = await models.classTypeModel.findOne({
+      where: { id, active: true },
+    });
+    if (!classType) {
+      throw new NotFoundException('Nie znaleziono formy zajec.');
+    }
+
+    const lessonCount = await models.lessonModel.count({ where: { classTypeId: id } });
+    return {
+      classType: classType.get({ plain: true }),
+      lessonCount,
+      canDelete: lessonCount === 0,
+    };
+  }
+
   private async validateUniqueSubjectName(
     models: ScheduleDatabaseModels,
     name: string,
@@ -1275,6 +1860,8 @@ export class ScheduleService implements OnModuleInit {
       await scheduleDatabase.authenticate();
       await scheduleDatabase.sync();
       await this.ensureScheduleAcademicGroupStudyModeColumn(scheduleDatabase);
+      await this.ensureScheduleLessonTimeShortcutSortOrderColumn(scheduleDatabase);
+      await this.ensureScheduleHolidaySourceColumn(scheduleDatabase);
     } finally {
       await scheduleDatabase.close();
     }
@@ -2022,6 +2609,205 @@ END $$;`,
     );
   }
 
+  private async ensureScheduleLessonTimeShortcutSortOrderColumn(
+    sequelize: Sequelize,
+  ): Promise<void> {
+    await sequelize.query(
+      `ALTER TABLE "schedule_lesson_time_shortcuts"
+       ADD COLUMN IF NOT EXISTS "sortOrder" INTEGER NOT NULL DEFAULT 0`,
+    );
+  }
+
+  private async ensureScheduleHolidaySourceColumn(sequelize: Sequelize): Promise<void> {
+    await sequelize.query(
+      `ALTER TABLE "schedule_holidays"
+       ADD COLUMN IF NOT EXISTS "source" VARCHAR(20)`,
+    );
+    await sequelize.query(
+      `UPDATE "schedule_holidays"
+       SET "source" = '${ScheduleHolidaySource.AUTOMATIC}'
+       WHERE "source" IS NULL`,
+    );
+    await sequelize.query(
+      `ALTER TABLE "schedule_holidays"
+       ALTER COLUMN "source" SET DEFAULT '${ScheduleHolidaySource.AUTOMATIC}',
+       ALTER COLUMN "source" SET NOT NULL`,
+    );
+    await sequelize.query('DROP INDEX IF EXISTS "schedule_holidays_unique_date"');
+    await sequelize.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS "schedule_holidays_unique_entry"
+       ON "schedule_holidays" ("date", "name", "source")`,
+    );
+  }
+
+  private validateHolidayYear(year: number): void {
+    if (!Number.isInteger(year) || year < 1900 || year > 2100) {
+      throw new BadRequestException('Rok musi byc liczba od 1900 do 2100.');
+    }
+  }
+
+  private validateManualHolidayDate(date: string): void {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+    if (!match) {
+      throw new BadRequestException('Data swieta ma niepoprawny format.');
+    }
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    this.validateHolidayYear(year);
+    const parsedDate = new Date(Date.UTC(year, month - 1, day));
+    if (
+      parsedDate.getUTCFullYear() !== year ||
+      parsedDate.getUTCMonth() !== month - 1 ||
+      parsedDate.getUTCDate() !== day
+    ) {
+      throw new BadRequestException('Podany dzien nie istnieje w wybranym miesiacu.');
+    }
+  }
+
+  private findStoredHolidays(holidayModel: any, year: number) {
+    return holidayModel.findAll({
+      attributes: ['id', 'date', 'name', 'source'],
+      where: {
+        date: {
+          [Op.between]: [`${year}-01-01`, `${year}-12-31`],
+        },
+      },
+      order: [['date', 'ASC']],
+    });
+  }
+
+  private async synchronizeAutomaticHolidays(
+    holidayModel: any,
+    year: number,
+    downloadedHolidays: Array<{ date: string; name: string }>,
+  ): Promise<boolean> {
+    const storedAutomaticHolidays = await holidayModel.findAll({
+      where: {
+        source: ScheduleHolidaySource.AUTOMATIC,
+        date: {
+          [Op.between]: [`${year}-01-01`, `${year}-12-31`],
+        },
+      },
+      order: [['date', 'ASC']],
+    });
+    const downloadedByDate = new Map(
+      downloadedHolidays.map((holiday) => [holiday.date, holiday]),
+    );
+    const storedByDate = new Map<string, any>();
+    const idsToDelete: string[] = [];
+
+    for (const storedHoliday of storedAutomaticHolidays) {
+      const date = String(storedHoliday.date);
+      if (!downloadedByDate.has(date) || storedByDate.has(date)) {
+        idsToDelete.push(storedHoliday.id);
+      } else {
+        storedByDate.set(date, storedHoliday);
+      }
+    }
+
+    const holidaysToUpdate = downloadedHolidays
+      .map((holiday) => ({ stored: storedByDate.get(holiday.date), downloaded: holiday }))
+      .filter(({ stored, downloaded }) => stored && stored.name !== downloaded.name);
+    const holidaysToCreate = downloadedHolidays.filter(
+      (holiday) => !storedByDate.has(holiday.date),
+    );
+
+    if (
+      idsToDelete.length === 0 &&
+      holidaysToUpdate.length === 0 &&
+      holidaysToCreate.length === 0
+    ) {
+      return false;
+    }
+
+    await holidayModel.sequelize.transaction(async (transaction: any) => {
+      if (idsToDelete.length > 0) {
+        await holidayModel.destroy({
+          where: { id: { [Op.in]: idsToDelete } },
+          transaction,
+        });
+      }
+
+      await Promise.all(
+        holidaysToUpdate.map(({ stored, downloaded }) =>
+          stored.update({ name: downloaded.name }, { transaction }),
+        ),
+      );
+
+      if (holidaysToCreate.length > 0) {
+        await holidayModel.bulkCreate(
+          holidaysToCreate.map((holiday) => ({
+            ...holiday,
+            source: ScheduleHolidaySource.AUTOMATIC,
+          })),
+          { transaction },
+        );
+      }
+    });
+
+    return true;
+  }
+
+  private async downloadPolishHolidays(
+    year: number,
+  ): Promise<Array<{ date: string; name: string }>> {
+    const apiBaseUrl =
+      process.env.HOLIDAYS_API_URL ?? 'https://nagerholidays.com/api/v4/Holidays';
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/PL/${year}`, {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Nager Holidays zwrocil status ${response.status}.`);
+      }
+
+      const payload = (await response.json()) as unknown;
+      if (!Array.isArray(payload)) {
+        throw new Error('Nager Holidays zwrocil niepoprawny format danych.');
+      }
+
+      const holidaysByDate = new Map<string, { date: string; name: string }>();
+      for (const item of payload as NagerHoliday[]) {
+        if (
+          typeof item?.date !== 'string' ||
+          typeof item?.name !== 'string' ||
+          item.countryCode !== 'PL' ||
+          !item.date.startsWith(`${year}-`)
+        ) {
+          continue;
+        }
+
+        const name = item.name.trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(item.date) || !name) {
+          continue;
+        }
+
+        holidaysByDate.set(item.date, {
+          date: item.date,
+          name: POLISH_HOLIDAY_NAMES[name] ?? name,
+        });
+      }
+
+      const holidays = [...holidaysByDate.values()].sort((first, second) =>
+        first.date.localeCompare(second.date),
+      );
+      if (holidays.length === 0) {
+        throw new Error('Nager Holidays nie zwrocil swiat dla wybranego roku.');
+      }
+
+      return holidays;
+    } catch {
+      throw new ServiceUnavailableException(
+        'Nie udalo sie pobrac swiat z serwisu Nager Holidays. Sprobuj ponownie pozniej.',
+      );
+    }
+  }
+
   private mainScheduleModels(): ScheduleDatabaseModels {
     return {
       subjectModel: this.subjectModel,
@@ -2029,12 +2815,15 @@ END $$;`,
       courseTeacherModel: this.courseTeacherModel,
       teacherSubjectModel: this.teacherSubjectModel,
       classTypeModel: this.classTypeModel,
+      holidayModel: this.holidayModel,
       noteModel: this.noteModel,
       locationModel: this.locationModel,
       groupModel: this.groupModel,
       studyTrackModel: this.studyTrackModel,
       studyTrackSpecializationModel: this.studyTrackSpecializationModel,
       lessonModel: this.lessonModel,
+      dateShortcutModel: this.dateShortcutModel,
+      shortcutModel: this.shortcutModel,
     };
   }
 
@@ -2083,6 +2872,8 @@ END $$;`,
     await sequelize.authenticate();
     await sequelize.sync();
     await this.ensureScheduleAcademicGroupStudyModeColumn(sequelize);
+    await this.ensureScheduleLessonTimeShortcutSortOrderColumn(sequelize);
+    await this.ensureScheduleHolidaySourceColumn(sequelize);
     this.academicYearDatabases.set(databaseName, { sequelize, models });
     return models;
   }
@@ -2148,6 +2939,22 @@ END $$;`,
       },
       { tableName: 'schedule_class_types' },
     );
+    const holidayModel = sequelize.define(
+      'ScheduleHoliday',
+      {
+        id: uuidPrimaryKey(),
+        date: { type: DataTypes.DATEONLY, allowNull: false },
+        name: { type: DataTypes.STRING(160), allowNull: false },
+        source: {
+          type: DataTypes.STRING(20),
+          allowNull: false,
+          defaultValue: ScheduleHolidaySource.AUTOMATIC,
+        },
+      },
+      {
+        tableName: 'schedule_holidays',
+      },
+    );
     const noteModel = sequelize.define(
       'ScheduleNote',
       {
@@ -2203,6 +3010,44 @@ END $$;`,
         active: activeColumn,
       },
       { tableName: 'schedule_study_track_specializations' },
+    );
+    const shortcutModel = sequelize.define(
+      'ScheduleLessonTimeShortcut',
+      {
+        id: uuidPrimaryKey(),
+        startHour: { type: DataTypes.INTEGER, allowNull: false },
+        startMinute: { type: DataTypes.INTEGER, allowNull: false },
+        lessonHours: { type: DataTypes.INTEGER, allowNull: false },
+        sortOrder: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+      },
+      {
+        tableName: 'schedule_lesson_time_shortcuts',
+        indexes: [
+          {
+            name: 'schedule_lesson_time_shortcuts_unique_time',
+            unique: true,
+            fields: ['startHour', 'startMinute', 'lessonHours'],
+          },
+        ],
+      },
+    );
+    const dateShortcutModel = sequelize.define(
+      'ScheduleLessonDateShortcut',
+      {
+        id: uuidPrimaryKey(),
+        date: { type: DataTypes.DATEONLY, allowNull: false },
+        week: { type: DataTypes.INTEGER, allowNull: false },
+      },
+      {
+        tableName: 'schedule_lesson_date_shortcuts',
+        indexes: [
+          {
+            name: 'schedule_lesson_date_shortcuts_unique_date_week',
+            unique: true,
+            fields: ['date', 'week'],
+          },
+        ],
+      },
     );
     const lessonModel = sequelize.define(
       'ScheduleLesson',
@@ -2261,12 +3106,15 @@ END $$;`,
       courseTeacherModel,
       teacherSubjectModel,
       classTypeModel,
+      holidayModel,
       noteModel,
       locationModel,
       groupModel,
       studyTrackModel,
       studyTrackSpecializationModel,
       lessonModel,
+      dateShortcutModel,
+      shortcutModel,
     };
   }
 
@@ -2324,6 +3172,81 @@ END $$;`,
     if (dto.level === ScheduleGroupLevel.WORKSHOP && parent.level !== ScheduleGroupLevel.GROUP) {
       throw new ConflictException('Warsztat musi należeć do grupy.');
     }
+  }
+
+  private async buildAcademicGroupDeletionCheck(
+    models: ScheduleDatabaseModels,
+    id: string,
+  ): Promise<AcademicGroupDeletionCheck> {
+    const groups: any[] = await models.groupModel.findAll({ where: { active: true } });
+    const group = groups.find((item) => item.id === id);
+    if (!group) {
+      throw new NotFoundException('Nie znaleziono kierunku, specjalnosci, grupy albo warsztatu.');
+    }
+
+    const descendantIds = this.findDescendantIds(id, groups);
+    const branchIds = [id, ...descendantIds];
+    const lessons: Array<{ groupId: string }> = await models.lessonModel.findAll({
+      where: { groupId: { [Op.in]: branchIds } },
+      attributes: ['groupId'],
+      raw: true,
+    });
+    const lessonCounts = new Map<string, number>();
+    for (const lesson of lessons) {
+      lessonCounts.set(lesson.groupId, (lessonCounts.get(lesson.groupId) ?? 0) + 1);
+    }
+
+    const childrenByParentId = new Map<string, any[]>();
+    for (const item of groups) {
+      if (!item.parentId) {
+        continue;
+      }
+      const siblings = childrenByParentId.get(item.parentId) ?? [];
+      siblings.push(item);
+      childrenByParentId.set(item.parentId, siblings);
+    }
+    for (const siblings of childrenByParentId.values()) {
+      siblings.sort((first, second) => first.name.localeCompare(second.name, 'pl'));
+    }
+
+    const buildChild = (child: any): AcademicGroupDeletionChild => {
+      const nestedChildren = (childrenByParentId.get(child.id) ?? []).map(buildChild);
+      const ownLessonCount = lessonCounts.get(child.id) ?? 0;
+      return {
+        ...child.get({ plain: true }),
+        ownLessonCount,
+        branchLessonCount:
+          ownLessonCount +
+          nestedChildren.reduce((count, nestedChild) => count + nestedChild.branchLessonCount, 0),
+        children: nestedChildren,
+      };
+    };
+    const children = (childrenByParentId.get(id) ?? []).map(buildChild);
+    const ownLessonCount = lessonCounts.get(id) ?? 0;
+    const descendantLessonCount = descendantIds.reduce(
+      (count, groupId) => count + (lessonCounts.get(groupId) ?? 0),
+      0,
+    );
+
+    return {
+      group: group.get({ plain: true }),
+      children,
+      ownLessonCount,
+      descendantLessonCount,
+      totalLessonCount: ownLessonCount + descendantLessonCount,
+      descendantCount: descendantIds.length,
+      hasChildren: children.length > 0,
+      canDelete: children.length === 0 && ownLessonCount === 0,
+    };
+  }
+
+  private collectAcademicGroupDeletionChildIds(
+    children: AcademicGroupDeletionChild[],
+  ): string[] {
+    return children.flatMap((child) => [
+      child.id,
+      ...this.collectAcademicGroupDeletionChildIds(child.children),
+    ]);
   }
 
   private async validateUniqueAcademicGroupName(
@@ -2620,6 +3543,45 @@ END $$;`,
   private findDescendantIds(groupId: string, groups: any[]): string[] {
     const direct = groups.filter((group) => group.parentId === groupId);
     return direct.flatMap((group) => [group.id, ...this.findDescendantIds(group.id, groups)]);
+  }
+
+  private sortLessonDateShortcuts(shortcuts: any[]): any[] {
+    return [...shortcuts].sort((first, second) => {
+      const weekDifference = first.week - second.week;
+      const weekdayDifference =
+        this.lessonDateWeekdayNumber(first.date) -
+        this.lessonDateWeekdayNumber(second.date);
+      return weekDifference || weekdayDifference || first.date.localeCompare(second.date);
+    });
+  }
+
+  private validateLessonDateShortcutDate(date: string): void {
+    const weekday = this.lessonDateWeekdayNumber(date);
+    if (!Number.isInteger(weekday) || weekday < 1 || weekday > 5) {
+      throw new BadRequestException('Skrót daty może wskazywać tylko dzień od poniedziałku do piątku.');
+    }
+  }
+
+  private async validateUniqueLessonDateShortcut(
+    models: ScheduleDatabaseModels,
+    date: string,
+    week: number,
+    excludedId?: string,
+  ): Promise<void> {
+    const where: any = { date, week };
+    if (excludedId) {
+      where.id = { [Op.ne]: excludedId };
+    }
+
+    const existingShortcut = await models.dateShortcutModel.findOne({ where });
+    if (existingShortcut) {
+      throw new ConflictException('Taki skrót daty już istnieje w wybranym tygodniu.');
+    }
+  }
+
+  private lessonDateWeekdayNumber(date: string): number {
+    const weekday = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+    return weekday === 0 ? 7 : weekday;
   }
 
   private toMinutes(hour: number, minute: number): number {

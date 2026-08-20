@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  ParseIntPipe,
   Patch,
   Post,
   Put,
@@ -18,7 +19,10 @@ import {
   CreateScheduleAcademicYearDto,
   CreateScheduleClassTypeDto,
   CreateScheduleCourseTeacherDto,
+  CreateScheduleHolidayDto,
   CreateScheduleLessonDto,
+  CreateScheduleLessonDateShortcutDto,
+  CreateScheduleLessonTimeShortcutDto,
   CreateScheduleLocationDto,
   CreateScheduleNoteDto,
   CreateScheduleStudyTrackDto,
@@ -27,12 +31,15 @@ import {
   CreateScheduleTeacherDto,
   CreateScheduleTeacherSubjectDto,
   ImportScheduleAcademicYearBackupDto,
+  ReorderScheduleLessonTimeShortcutsDto,
   ScheduleLessonFilters,
   TransferScheduleAcademicYearDataDto,
   UpdateScheduleAcademicGroupDto,
   UpdateScheduleAcademicYearDto,
   UpdateScheduleClassTypeDto,
   UpdateScheduleLessonDto,
+  UpdateScheduleLessonDateShortcutDto,
+  UpdateScheduleLessonTimeShortcutDto,
   UpdateScheduleLocationDto,
   UpdateScheduleNoteDto,
   UpdateScheduleStudyTrackDto,
@@ -58,6 +65,87 @@ export class ScheduleController {
   @ApiOperation({ summary: 'Get schedule counters' })
   findSummary() {
     return this.scheduleService.findSummary();
+  }
+
+  @Get('holidays')
+  @ApiOperation({ summary: 'Get or download Polish holidays for a year' })
+  findHolidays(
+    @Query('year', ParseIntPipe) year: number,
+    @Query('refresh') refresh?: string,
+  ) {
+    return this.scheduleService.findHolidays(year, refresh === 'true');
+  }
+
+  @Post('holidays/manual')
+  @ApiOperation({ summary: 'Create a manual holiday' })
+  createManualHoliday(@Body() dto: CreateScheduleHolidayDto) {
+    return this.scheduleService.createManualHoliday(dto);
+  }
+
+  @Delete('holidays/manual/:id')
+  @ApiOperation({ summary: 'Delete a manual holiday' })
+  deleteManualHoliday(@Param('id') id: string) {
+    return this.scheduleService.deleteManualHoliday(id);
+  }
+
+  @Get('shortcuts')
+  @ApiOperation({ summary: 'Get lesson time shortcuts' })
+  findLessonTimeShortcuts() {
+    return this.scheduleService.findLessonTimeShortcuts();
+  }
+
+  @Post('shortcuts')
+  @ApiOperation({ summary: 'Create lesson time shortcut' })
+  createLessonTimeShortcut(@Body() dto: CreateScheduleLessonTimeShortcutDto) {
+    return this.scheduleService.createLessonTimeShortcut(dto);
+  }
+
+  @Patch('shortcuts/reorder')
+  @ApiOperation({ summary: 'Reorder lesson time shortcuts' })
+  reorderLessonTimeShortcuts(@Body() dto: ReorderScheduleLessonTimeShortcutsDto) {
+    return this.scheduleService.reorderLessonTimeShortcuts(dto);
+  }
+
+  @Patch('shortcuts/:id')
+  @ApiOperation({ summary: 'Update lesson time shortcut' })
+  updateLessonTimeShortcut(
+    @Param('id') id: string,
+    @Body() dto: UpdateScheduleLessonTimeShortcutDto,
+  ) {
+    return this.scheduleService.updateLessonTimeShortcut(id, dto);
+  }
+
+  @Delete('shortcuts/:id')
+  @ApiOperation({ summary: 'Delete lesson time shortcut' })
+  deleteLessonTimeShortcut(@Param('id') id: string) {
+    return this.scheduleService.deleteLessonTimeShortcut(id);
+  }
+
+  @Get('date-shortcuts')
+  @ApiOperation({ summary: 'Get lesson date shortcuts' })
+  findLessonDateShortcuts() {
+    return this.scheduleService.findLessonDateShortcuts();
+  }
+
+  @Post('date-shortcuts')
+  @ApiOperation({ summary: 'Create lesson date shortcut' })
+  createLessonDateShortcut(@Body() dto: CreateScheduleLessonDateShortcutDto) {
+    return this.scheduleService.createLessonDateShortcut(dto);
+  }
+
+  @Patch('date-shortcuts/:id')
+  @ApiOperation({ summary: 'Update lesson date shortcut' })
+  updateLessonDateShortcut(
+    @Param('id') id: string,
+    @Body() dto: UpdateScheduleLessonDateShortcutDto,
+  ) {
+    return this.scheduleService.updateLessonDateShortcut(id, dto);
+  }
+
+  @Delete('date-shortcuts/:id')
+  @ApiOperation({ summary: 'Delete lesson date shortcut' })
+  deleteLessonDateShortcut(@Param('id') id: string) {
+    return this.scheduleService.deleteLessonDateShortcut(id);
   }
 
   @Get('subjects')
@@ -264,6 +352,19 @@ export class ScheduleController {
     return this.scheduleService.updateClassType(id, dto);
   }
 
+  @Get('class-types/:id/deletion-check')
+  getClassTypeDeletionCheck(@Param('id') id: string) {
+    return this.scheduleService.getClassTypeDeletionCheck(id);
+  }
+
+  @Delete('class-types/:id')
+  deleteClassType(
+    @Param('id') id: string,
+    @Query('lessonStrategy') lessonStrategy?: string,
+  ) {
+    return this.scheduleService.deleteClassType(id, lessonStrategy);
+  }
+
   @Post('notes')
   createNote(@Body() dto: CreateScheduleNoteDto) {
     return this.scheduleService.createNote(dto);
@@ -307,6 +408,24 @@ export class ScheduleController {
   @Patch('groups/:id')
   patchGroup(@Param('id') id: string, @Body() dto: UpdateScheduleAcademicGroupDto) {
     return this.scheduleService.updateGroup(id, dto);
+  }
+
+  @Get('groups/:id/deletion-check')
+  getGroupDeletionCheck(@Param('id') id: string) {
+    return this.scheduleService.getGroupDeletionCheck(id);
+  }
+
+  @Delete('groups/:id')
+  deleteGroup(@Param('id') id: string) {
+    return this.scheduleService.deleteGroup(id);
+  }
+
+  @Delete('groups/:id/tree')
+  deleteGroupTree(
+    @Param('id') id: string,
+    @Query('lessonStrategy') lessonStrategy?: string,
+  ) {
+    return this.scheduleService.deleteGroupTree(id, lessonStrategy);
   }
 
   @Post('study-tracks')
