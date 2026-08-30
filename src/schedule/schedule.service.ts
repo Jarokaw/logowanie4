@@ -6,8 +6,9 @@ import {
   OnModuleInit,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { InjectConnection, InjectModel } from '@nestjs/sequelize';
-import { DataTypes, Op, QueryTypes } from 'sequelize';
+import { DataTypes, Op, QueryTypes, Transaction } from 'sequelize';
 import { Sequelize } from 'sequelize-typescript';
 import {
   CreateScheduleAcademicGroupDto,
@@ -17,6 +18,7 @@ import {
   CreateScheduleHolidayDto,
   CreateScheduleLessonDateShortcutDto,
   CreateScheduleLessonDto,
+  CreateScheduleLessonRangeDto,
   CreateScheduleLessonTimeShortcutDto,
   CreateScheduleLocationDto,
   CreateScheduleNoteDto,
@@ -26,6 +28,7 @@ import {
   CreateScheduleTeacherDto,
   CreateScheduleTeacherSubjectDto,
   ImportScheduleAcademicYearBackupDto,
+  PreviewScheduleLessonRangeDto,
   ReorderScheduleLessonTimeShortcutsDto,
   ScheduleAcademicYearTransferSection,
   ScheduleLessonFilters,
@@ -61,7 +64,9 @@ import { ScheduleNote } from './models/schedule-note.model';
 import { ScheduleCourseTeacher } from './models/schedule-course-teacher.model';
 import { ScheduleStudyTrack } from './models/schedule-study-track.model';
 import { ScheduleStudyTrackSpecialization } from './models/schedule-study-track-specialization.model';
-import { ScheduleLesson } from './models/schedule-lesson.model';
+import { ScheduleLesson, ScheduleLessonSource } from './models/schedule-lesson.model';
+import { ScheduleLessonGeneration } from './models/schedule-lesson-generation.model';
+import { ScheduleLessonRange } from './models/schedule-lesson-range.model';
 import { ScheduleLessonDateShortcut } from './models/schedule-lesson-date-shortcut.model';
 import { ScheduleLessonTimeShortcut } from './models/schedule-lesson-time-shortcut.model';
 import { ScheduleSubject } from './models/schedule-subject.model';
@@ -81,6 +86,32 @@ type LessonLike = Pick<
   | 'classTypeId'
   | 'noteId'
 >;
+
+type LessonGenerationCandidate = LessonLike & {
+  key: string;
+  source: ScheduleLessonSource.LESSON_RANGE;
+  generationId: string;
+  sourceLessonId: string;
+  detached: false;
+  sourceLesson: any;
+};
+
+type LessonGenerationPlan = {
+  range: any;
+  generation: any | null;
+  generationId: string;
+  sourceWeekOneDate: string;
+  sourceWeekTwoDate: string;
+  sourceWeekOneCount: number;
+  sourceWeekTwoCount: number;
+  candidates: LessonGenerationCandidate[];
+  toCreate: LessonGenerationCandidate[];
+  toUpdate: Array<{ lesson: any; candidate: LessonGenerationCandidate }>;
+  toDelete: any[];
+  unchanged: LessonGenerationCandidate[];
+  conflicts: any[];
+  warnings: string[];
+};
 
 type LocationLike = Pick<CreateScheduleLocationDto, 'name' | 'type' | 'parentId'>;
 type AcademicGroupLike = Pick<CreateScheduleAcademicGroupDto, 'name' | 'level' | 'parentId'>;
@@ -137,6 +168,8 @@ type ScheduleDatabaseModels = {
   studyTrackModel: any;
   studyTrackSpecializationModel: any;
   lessonModel: any;
+  lessonGenerationModel: any;
+  lessonRangeModel: any;
   dateShortcutModel: any;
   shortcutModel: any;
 };
@@ -251,6 +284,10 @@ export class ScheduleService implements OnModuleInit {
     private readonly academicYearModel: typeof ScheduleAcademicYear,
     @InjectModel(ScheduleLesson)
     private readonly lessonModel: typeof ScheduleLesson,
+    @InjectModel(ScheduleLessonGeneration)
+    private readonly lessonGenerationModel: typeof ScheduleLessonGeneration,
+    @InjectModel(ScheduleLessonRange)
+    private readonly lessonRangeModel: typeof ScheduleLessonRange,
     @InjectModel(ScheduleLessonDateShortcut)
     private readonly dateShortcutModel: typeof ScheduleLessonDateShortcut,
     @InjectModel(ScheduleLessonTimeShortcut)
@@ -263,6 +300,7 @@ export class ScheduleService implements OnModuleInit {
     await this.ensureScheduleAcademicGroupStudyModeColumn(this.sequelize);
     await this.ensureScheduleLessonTimeShortcutSortOrderColumn(this.sequelize);
     await this.ensureScheduleHolidaySourceColumn(this.sequelize);
+    await this.ensureScheduleLessonGenerationColumns(this.sequelize);
     await this.seedDefaultDictionaries();
   }
 
@@ -421,6 +459,626 @@ export class ScheduleService implements OnModuleInit {
 
     await holiday.destroy();
     return { deleted: true, id };
+  }
+
+  async findLessonRanges() {
+    const models = await this.getScheduleModels();
+    const groups: any[] = await models.groupModel.findAll({
+      attributes: ['id', 'level', 'studyMode', 'parentId'],
+      raw: true,
+    });
+    const groupsById = new Map(groups.map((group) => [group.id, group]));
+    const fullTimeGroupIds = groups
+      .filter((group) => {
+        let current = group;
+        const visited = new Set<string>();
+
+        while (current && current.level !== ScheduleGroupLevel.COURSE) {
+          if (!current.parentId || visited.has(current.id)) {
+            return false;
+          }
+          visited.add(current.id);
+          current = groupsById.get(current.parentId);
+        }
+
+        return current?.studyMode === ScheduleStudyMode.FULL_TIME;
+      })
+      .map((group) => group.id);
+
+    const [lessons, range, holidays, generation, generatedLessonCount] = await Promise.all([
+      fullTimeGroupIds.length
+        ? models.lessonModel.findAll({
+            attributes: ['date'],
+            where: { groupId: { [Op.in]: fullTimeGroupIds } },
+            raw: true,
+          })
+        : [],
+      models.lessonRangeModel.findOne({
+        attributes: ['id', 'startDate', 'endDate'],
+        where: { key: 'DEFAULT' },
+      }),
+      models.holidayModel.findAll({
+        attributes: ['id', 'date', 'name', 'source'],
+        order: [
+          ['date', 'ASC'],
+          ['name', 'ASC'],
+        ],
+      }),
+      models.lessonGenerationModel.findOne({
+        attributes: ['id', 'sourceWeekOneDate', 'sourceWeekTwoDate', 'lastAppliedAt'],
+        where: { key: 'DEFAULT' },
+      }),
+      models.lessonModel.count({
+        where: { source: ScheduleLessonSource.LESSON_RANGE },
+      }),
+    ]);
+
+    const lessonsByDate = new Map<string, number>();
+    for (const lesson of lessons as Array<{ date: string }>) {
+      lessonsByDate.set(lesson.date, (lessonsByDate.get(lesson.date) ?? 0) + 1);
+    }
+
+    return {
+      lessonDates: Array.from(lessonsByDate, ([date, lessonCount]) => ({
+        date,
+        lessonCount,
+      })).sort((first, second) => first.date.localeCompare(second.date)),
+      range,
+      generation,
+      generatedLessonCount,
+      holidays,
+    };
+  }
+
+  async saveLessonRange(dto: CreateScheduleLessonRangeDto) {
+    this.validateLessonRangeDate(dto.startDate);
+    this.validateLessonRangeDate(dto.endDate);
+    if (dto.startDate > dto.endDate) {
+      throw new BadRequestException(
+        'Data końcowa zakresu nie może być wcześniejsza niż data początkowa.',
+      );
+    }
+
+    const models = await this.getScheduleModels();
+    const existingRange = await models.lessonRangeModel.findOne({
+      where: { key: 'DEFAULT' },
+    });
+    if (existingRange) {
+      await existingRange.update({
+        startDate: dto.startDate,
+        endDate: dto.endDate,
+      });
+      return existingRange;
+    }
+
+    try {
+      return await models.lessonRangeModel.create({
+        key: 'DEFAULT',
+        startDate: dto.startDate,
+        endDate: dto.endDate,
+      });
+    } catch (error) {
+      if ((error as { name?: string }).name === 'SequelizeUniqueConstraintError') {
+        const concurrentRange = await models.lessonRangeModel.findOne({
+          where: { key: 'DEFAULT' },
+        });
+        if (concurrentRange) {
+          await concurrentRange.update({
+            startDate: dto.startDate,
+            endDate: dto.endDate,
+          });
+          return concurrentRange;
+        }
+      }
+      throw error;
+    }
+  }
+
+  async previewLessonRange(dto: PreviewScheduleLessonRangeDto) {
+    const models = await this.getScheduleModels();
+    const plan = await this.buildLessonGenerationPlan(models, dto);
+    return this.mapLessonGenerationPreview(plan);
+  }
+
+  async applyLessonRange(dto: PreviewScheduleLessonRangeDto) {
+    const models = await this.getScheduleModels();
+    const scheduleDatabase = models.lessonModel.sequelize as Sequelize;
+
+    return scheduleDatabase.transaction(
+      { isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE },
+      async (transaction) => {
+        const plan = await this.buildLessonGenerationPlan(models, dto, transaction);
+        const preview = this.mapLessonGenerationPreview(plan);
+        if (plan.sourceWeekOneCount === 0 && plan.sourceWeekTwoCount === 0) {
+          throw new BadRequestException({
+            message: 'Wybrane tygodnie nie zawierają zajęć wzorcowych.',
+            preview,
+          });
+        }
+        if (plan.conflicts.length > 0) {
+          throw new ConflictException({
+            message: 'Nie naniesiono zajęć. Najpierw rozwiąż wykazane konflikty.',
+            preview,
+          });
+        }
+
+        if (plan.toDelete.length > 0) {
+          await models.lessonModel.destroy({
+            where: { id: { [Op.in]: plan.toDelete.map((lesson) => lesson.id) } },
+            transaction,
+          });
+        }
+        for (const { lesson, candidate } of plan.toUpdate) {
+          await lesson.update(this.lessonGenerationPayload(candidate), { transaction });
+        }
+        if (plan.toCreate.length > 0) {
+          await models.lessonModel.bulkCreate(
+            plan.toCreate.map((candidate) => this.lessonGenerationPayload(candidate)),
+            { transaction },
+          );
+        }
+
+        const generationPayload = {
+          key: 'DEFAULT',
+          sourceWeekOneDate: plan.sourceWeekOneDate,
+          sourceWeekTwoDate: plan.sourceWeekTwoDate,
+          lastAppliedAt: new Date(),
+        };
+        let generation = plan.generation;
+        if (generation) {
+          await generation.update(generationPayload, { transaction });
+        } else {
+          generation = await models.lessonGenerationModel.create(
+            { id: plan.generationId, ...generationPayload },
+            { transaction },
+          );
+        }
+
+        return {
+          ...preview,
+          applied: true,
+          generation: {
+            id: generation.id,
+            sourceWeekOneDate: generation.sourceWeekOneDate,
+            sourceWeekTwoDate: generation.sourceWeekTwoDate,
+            lastAppliedAt: generation.lastAppliedAt,
+          },
+        };
+      },
+    );
+  }
+
+  async deleteLessonRangeLessons() {
+    const models = await this.getScheduleModels();
+    const deletedCount = await models.lessonModel.destroy({
+      where: { source: ScheduleLessonSource.LESSON_RANGE },
+    });
+    return { deleted: true, deletedCount };
+  }
+
+  private async buildLessonGenerationPlan(
+    models: ScheduleDatabaseModels,
+    dto: PreviewScheduleLessonRangeDto,
+    transaction?: Transaction,
+  ): Promise<LessonGenerationPlan> {
+    this.validateLessonRangeDate(dto.sourceWeekOneDate);
+    this.validateLessonRangeDate(dto.sourceWeekTwoDate);
+
+    const sourceWeekOneDate = this.getMondayDate(dto.sourceWeekOneDate);
+    const sourceWeekTwoDate = this.getMondayDate(dto.sourceWeekTwoDate);
+    const sourceWeekOneEnd = this.addDays(sourceWeekOneDate, 4);
+    const sourceWeekTwoEnd = this.addDays(sourceWeekTwoDate, 4);
+    const range = await models.lessonRangeModel.findOne({
+      where: { key: 'DEFAULT' },
+      transaction,
+    });
+    if (!range) {
+      throw new BadRequestException('Najpierw zapisz zakres zajęć.');
+    }
+
+    const generation = await models.lessonGenerationModel.findOne({
+      where: { key: 'DEFAULT' },
+      transaction,
+    });
+    const generationId = generation?.id ?? randomUUID();
+    const [groups, holidays, sourceLessons, managedLessons, targetLessons] = await Promise.all([
+      models.groupModel.findAll({
+        attributes: ['id', 'level', 'studyMode', 'parentId'],
+        raw: true,
+        transaction,
+      }),
+      models.holidayModel.findAll({
+        attributes: ['date'],
+        where: { date: { [Op.between]: [range.startDate, range.endDate] } },
+        raw: true,
+        transaction,
+      }),
+      models.lessonModel.findAll({
+        where: {
+          source: ScheduleLessonSource.MANUAL,
+          [Op.or]: [
+            { date: { [Op.between]: [sourceWeekOneDate, sourceWeekOneEnd] } },
+            { date: { [Op.between]: [sourceWeekTwoDate, sourceWeekTwoEnd] } },
+          ],
+        },
+        include: this.lessonIncludes(models),
+        transaction,
+      }),
+      generation
+        ? models.lessonModel.findAll({
+            where: {
+              source: ScheduleLessonSource.LESSON_RANGE,
+              generationId,
+              detached: false,
+            },
+            transaction,
+          })
+        : [],
+      models.lessonModel.findAll({
+        where: { date: { [Op.between]: [range.startDate, range.endDate] } },
+        include: this.lessonIncludes(models),
+        transaction,
+      }),
+    ]);
+
+    const groupsById = new Map<string, any>(groups.map((group: any) => [group.id, group]));
+    const isFullTimeGroup = (groupId: string): boolean => {
+      let current = groupsById.get(groupId);
+      const visited = new Set<string>();
+      while (current && current.level !== ScheduleGroupLevel.COURSE) {
+        if (!current.parentId || visited.has(current.id)) {
+          return false;
+        }
+        visited.add(current.id);
+        current = groupsById.get(current.parentId);
+      }
+      return current?.studyMode === ScheduleStudyMode.FULL_TIME;
+    };
+
+    const fullTimeSourceLessons = sourceLessons.filter((lesson: any) =>
+      isFullTimeGroup(lesson.groupId),
+    );
+    const sourceWeekOneLessons = fullTimeSourceLessons.filter(
+      (lesson: any) => lesson.date >= sourceWeekOneDate && lesson.date <= sourceWeekOneEnd,
+    );
+    const sourceWeekTwoLessons = fullTimeSourceLessons.filter(
+      (lesson: any) => lesson.date >= sourceWeekTwoDate && lesson.date <= sourceWeekTwoEnd,
+    );
+    const holidaysByDate = new Set<string>(holidays.map((holiday: any) => holiday.date));
+    const candidates: LessonGenerationCandidate[] = [];
+    const cycleStartMonday = this.getCycleStartMondayDate(range.startDate);
+
+    for (
+      let targetDate = range.startDate;
+      targetDate <= range.endDate;
+      targetDate = this.addDays(targetDate, 1)
+    ) {
+      const weekday = this.getIsoWeekday(targetDate);
+      if (weekday > 5 || holidaysByDate.has(targetDate)) {
+        continue;
+      }
+
+      const targetMonday = this.getMondayDate(targetDate);
+      const weekIndex = Math.round(
+        (this.parseIsoDate(targetMonday).getTime() - this.parseIsoDate(cycleStartMonday).getTime()) /
+          (7 * 24 * 60 * 60 * 1000),
+      );
+      const cycleWeek = ((weekIndex % 2) + 2) % 2 === 0 ? 1 : 2;
+      const templates = cycleWeek === 1 ? sourceWeekOneLessons : sourceWeekTwoLessons;
+
+      for (const sourceLesson of templates) {
+        if (this.getIsoWeekday(sourceLesson.date) !== weekday || sourceLesson.date === targetDate) {
+          continue;
+        }
+        candidates.push({
+          key: `${sourceLesson.id}:${targetDate}`,
+          date: targetDate,
+          startHour: sourceLesson.startHour,
+          startMinute: sourceLesson.startMinute,
+          lessonHours: sourceLesson.lessonHours,
+          teacherId: sourceLesson.teacherId,
+          subjectId: sourceLesson.subjectId,
+          roomId: sourceLesson.roomId,
+          groupId: sourceLesson.groupId,
+          classTypeId: sourceLesson.classTypeId,
+          noteId: sourceLesson.noteId ?? null,
+          source: ScheduleLessonSource.LESSON_RANGE,
+          generationId,
+          sourceLessonId: sourceLesson.id,
+          detached: false,
+          sourceLesson,
+        });
+      }
+    }
+
+    const managedByKey = new Map<string, any>(
+      managedLessons.map((lesson: any) => [`${lesson.sourceLessonId}:${lesson.date}`, lesson]),
+    );
+    const desiredKeys = new Set(candidates.map((candidate) => candidate.key));
+    const toCreate: LessonGenerationCandidate[] = [];
+    const toUpdate: Array<{ lesson: any; candidate: LessonGenerationCandidate }> = [];
+    const unchanged: LessonGenerationCandidate[] = [];
+    for (const candidate of candidates) {
+      const existingLesson = managedByKey.get(candidate.key);
+      if (!existingLesson) {
+        toCreate.push(candidate);
+      } else if (this.lessonGenerationHasChanges(existingLesson, candidate)) {
+        toUpdate.push({ lesson: existingLesson, candidate });
+      } else {
+        unchanged.push(candidate);
+      }
+    }
+    const toDelete = managedLessons.filter(
+      (lesson: any) => !desiredKeys.has(`${lesson.sourceLessonId}:${lesson.date}`),
+    );
+
+    const managedIds = new Set(managedLessons.map((lesson: any) => lesson.id));
+    const blockingLessons = targetLessons.filter((lesson: any) => !managedIds.has(lesson.id));
+    const conflicts = this.findLessonGenerationConflicts(candidates, blockingLessons, groups);
+    const warnings: string[] = [];
+    if (sourceWeekOneLessons.length === 0) {
+      warnings.push(
+        'W wybranym wzorcu Tygodnia 1 nie ma ręcznie dodanych zajęć stacjonarnych.',
+      );
+    }
+    if (sourceWeekTwoLessons.length === 0) {
+      warnings.push(
+        'W wybranym wzorcu Tygodnia 2 nie ma ręcznie dodanych zajęć stacjonarnych.',
+      );
+    }
+
+    return {
+      range,
+      generation,
+      generationId,
+      sourceWeekOneDate,
+      sourceWeekTwoDate,
+      sourceWeekOneCount: sourceWeekOneLessons.length,
+      sourceWeekTwoCount: sourceWeekTwoLessons.length,
+      candidates,
+      toCreate,
+      toUpdate,
+      toDelete,
+      unchanged,
+      conflicts,
+      warnings,
+    };
+  }
+
+  private findLessonGenerationConflicts(
+    candidates: LessonGenerationCandidate[],
+    blockingLessons: any[],
+    groups: any[],
+  ): any[] {
+    const conflictMap = new Map<
+      string,
+      {
+        candidate: LessonGenerationCandidate;
+        reasons: Set<string>;
+        lessons: Map<string, any>;
+      }
+    >();
+    const relatedGroups = new Map<string, Set<string>>();
+    const blockingLessonsByDate = new Map<string, any[]>();
+    for (const lesson of blockingLessons) {
+      const dateLessons = blockingLessonsByDate.get(lesson.date) ?? [];
+      dateLessons.push(lesson);
+      blockingLessonsByDate.set(lesson.date, dateLessons);
+    }
+    const candidatesByDate = new Map<string, LessonGenerationCandidate[]>();
+    for (const candidate of candidates) {
+      if (!relatedGroups.has(candidate.groupId)) {
+        relatedGroups.set(
+          candidate.groupId,
+          this.getGroupConflictIdsFromList(candidate.groupId, groups),
+        );
+      }
+      const dateCandidates = candidatesByDate.get(candidate.date) ?? [];
+      dateCandidates.push(candidate);
+      candidatesByDate.set(candidate.date, dateCandidates);
+    }
+
+    const addConflict = (
+      candidate: LessonGenerationCandidate,
+      reasons: string[],
+      lessonKey: string,
+      lesson: any,
+    ) => {
+      let conflict = conflictMap.get(candidate.key);
+      if (!conflict) {
+        conflict = {
+          candidate,
+          reasons: new Set<string>(),
+          lessons: new Map<string, any>(),
+        };
+        conflictMap.set(candidate.key, conflict);
+      }
+      reasons.forEach((reason) => conflict?.reasons.add(reason));
+      conflict.lessons.set(lessonKey, lesson);
+    };
+
+    for (const candidate of candidates) {
+      const candidateStart = this.toMinutes(candidate.startHour, candidate.startMinute);
+      const candidateEnd = candidateStart + candidate.lessonHours * this.lessonMinutes;
+      for (const lesson of blockingLessonsByDate.get(candidate.date) ?? []) {
+        const lessonStart = this.toMinutes(lesson.startHour, lesson.startMinute);
+        const lessonEnd = lessonStart + lesson.lessonHours * this.lessonMinutes;
+        if (!this.overlaps(candidateStart, candidateEnd, lessonStart, lessonEnd)) {
+          continue;
+        }
+        const reasons = this.getLessonConflictReasons(
+          candidate,
+          lesson,
+          relatedGroups.get(candidate.groupId) ?? new Set([candidate.groupId]),
+        );
+        if (reasons.length > 0) {
+          addConflict(candidate, reasons, lesson.id, this.mapConflict(lesson));
+        }
+      }
+    }
+
+    for (const dateCandidates of candidatesByDate.values()) {
+      for (let firstIndex = 0; firstIndex < dateCandidates.length; firstIndex += 1) {
+        const first = dateCandidates[firstIndex];
+        for (
+          let secondIndex = firstIndex + 1;
+          secondIndex < dateCandidates.length;
+          secondIndex += 1
+        ) {
+          const second = dateCandidates[secondIndex];
+          const firstStart = this.toMinutes(first.startHour, first.startMinute);
+          const firstEnd = firstStart + first.lessonHours * this.lessonMinutes;
+          const secondStart = this.toMinutes(second.startHour, second.startMinute);
+          const secondEnd = secondStart + second.lessonHours * this.lessonMinutes;
+          if (!this.overlaps(firstStart, firstEnd, secondStart, secondEnd)) {
+            continue;
+          }
+          const reasons = this.getLessonConflictReasons(
+            first,
+            second,
+            relatedGroups.get(first.groupId) ?? new Set([first.groupId]),
+          );
+          if (reasons.length > 0) {
+            addConflict(first, reasons, second.key, this.mapLessonGenerationCandidate(second));
+            addConflict(second, reasons, first.key, this.mapLessonGenerationCandidate(first));
+          }
+        }
+      }
+    }
+
+    return Array.from(conflictMap.values())
+      .map((conflict) => ({
+        candidate: this.mapLessonGenerationCandidate(conflict.candidate),
+        reasons: Array.from(conflict.reasons),
+        lessons: Array.from(conflict.lessons.values()),
+      }))
+      .sort((first, second) =>
+        `${first.candidate.date}-${first.candidate.time}`.localeCompare(
+          `${second.candidate.date}-${second.candidate.time}`,
+        ),
+      );
+  }
+
+  private getLessonConflictReasons(
+    lesson: LessonLike,
+    otherLesson: LessonLike,
+    relatedGroupIds: Set<string>,
+  ): string[] {
+    const reasons: string[] = [];
+    if (lesson.teacherId === otherLesson.teacherId) {
+      reasons.push('Prowadzący');
+    }
+    if (lesson.roomId === otherLesson.roomId) {
+      reasons.push('Sala');
+    }
+    if (relatedGroupIds.has(otherLesson.groupId)) {
+      reasons.push('Grupa');
+    }
+    return reasons;
+  }
+
+  private getGroupConflictIdsFromList(groupId: string, groups: any[]): Set<string> {
+    const byId = new Map<string, any>(groups.map((group) => [group.id, group]));
+    const ids = new Set<string>([groupId]);
+    let current = byId.get(groupId);
+    while (current?.parentId) {
+      ids.add(current.parentId);
+      current = byId.get(current.parentId);
+    }
+    for (const id of this.findDescendantIds(groupId, groups)) {
+      ids.add(id);
+    }
+    return ids;
+  }
+
+  private lessonGenerationHasChanges(
+    lesson: any,
+    candidate: LessonGenerationCandidate,
+  ): boolean {
+    const fields: Array<keyof LessonLike> = [
+      'date',
+      'startHour',
+      'startMinute',
+      'lessonHours',
+      'teacherId',
+      'subjectId',
+      'roomId',
+      'groupId',
+      'classTypeId',
+      'noteId',
+    ];
+    return fields.some((field) => (lesson[field] ?? null) !== (candidate[field] ?? null));
+  }
+
+  private lessonGenerationPayload(candidate: LessonGenerationCandidate) {
+    return {
+      date: candidate.date,
+      startHour: candidate.startHour,
+      startMinute: candidate.startMinute,
+      lessonHours: candidate.lessonHours,
+      teacherId: candidate.teacherId,
+      subjectId: candidate.subjectId,
+      roomId: candidate.roomId,
+      groupId: candidate.groupId,
+      classTypeId: candidate.classTypeId,
+      noteId: candidate.noteId ?? null,
+      source: candidate.source,
+      generationId: candidate.generationId,
+      sourceLessonId: candidate.sourceLessonId,
+      detached: false,
+    };
+  }
+
+  private mapLessonGenerationCandidate(candidate: LessonGenerationCandidate) {
+    const sourceLesson = candidate.sourceLesson;
+    return {
+      sourceLessonId: candidate.sourceLessonId,
+      date: candidate.date,
+      time: `${this.formatTime(candidate.startHour, candidate.startMinute)}-${this.addLessonHours(
+        candidate.startHour,
+        candidate.startMinute,
+        candidate.lessonHours,
+      )}`,
+      teacher: sourceLesson.teacher ? this.mapTeacher(sourceLesson.teacher).fullName : null,
+      subject: sourceLesson.subject?.name ?? null,
+      room: sourceLesson.room?.name ?? null,
+      group: sourceLesson.group?.name ?? null,
+      classType: sourceLesson.classType?.name ?? null,
+    };
+  }
+
+  private mapLessonGenerationPreview(plan: LessonGenerationPlan) {
+    return {
+      range: {
+        id: plan.range.id,
+        startDate: plan.range.startDate,
+        endDate: plan.range.endDate,
+      },
+      generation: plan.generation
+        ? {
+            id: plan.generation.id,
+            sourceWeekOneDate: plan.generation.sourceWeekOneDate,
+            sourceWeekTwoDate: plan.generation.sourceWeekTwoDate,
+            lastAppliedAt: plan.generation.lastAppliedAt,
+          }
+        : null,
+      sourceWeeks: {
+        weekOne: { date: plan.sourceWeekOneDate, lessonCount: plan.sourceWeekOneCount },
+        weekTwo: { date: plan.sourceWeekTwoDate, lessonCount: plan.sourceWeekTwoCount },
+      },
+      summary: {
+        create: plan.toCreate.length,
+        update: plan.toUpdate.length,
+        delete: plan.toDelete.length,
+        unchanged: plan.unchanged.length,
+        conflicts: plan.conflicts.length,
+      },
+      warnings: plan.warnings,
+      conflicts: plan.conflicts,
+      canApply:
+        (plan.sourceWeekOneCount > 0 || plan.sourceWeekTwoCount > 0) &&
+        plan.conflicts.length === 0,
+    };
   }
 
   async findLessonTimeShortcuts() {
@@ -1508,6 +2166,7 @@ export class ScheduleService implements OnModuleInit {
   async createLesson(dto: CreateScheduleLessonDto) {
     const models = await this.getScheduleModels();
     await this.validateLessonReferences(models, dto);
+    await this.assertLessonDateIsNotHoliday(models, dto.date);
     await this.assertNoLessonConflicts(models, dto);
     const lesson = await models.lessonModel.create(dto);
     return this.findLesson(lesson.id);
@@ -1520,7 +2179,10 @@ export class ScheduleService implements OnModuleInit {
       throw new NotFoundException('Nie znaleziono zajęć.');
     }
     const noteIdWasProvided = Object.prototype.hasOwnProperty.call(dto, 'noteId');
-    const updatePayload = noteIdWasProvided ? { ...dto, noteId: dto.noteId || null } : dto;
+    const updatePayload: any = noteIdWasProvided ? { ...dto, noteId: dto.noteId || null } : dto;
+    if (lesson.source === ScheduleLessonSource.LESSON_RANGE && !lesson.detached) {
+      updatePayload.detached = true;
+    }
 
     const nextLesson: LessonLike = {
       date: dto.date ?? lesson.date,
@@ -1536,6 +2198,9 @@ export class ScheduleService implements OnModuleInit {
     };
 
     await this.validateLessonReferences(models, nextLesson);
+    if (dto.date && dto.date !== lesson.date) {
+      await this.assertLessonDateIsNotHoliday(models, nextLesson.date);
+    }
     await this.assertNoLessonConflicts(models, nextLesson, id);
     await lesson.update(updatePayload);
     return this.findLesson(id);
@@ -1862,6 +2527,7 @@ export class ScheduleService implements OnModuleInit {
       await this.ensureScheduleAcademicGroupStudyModeColumn(scheduleDatabase);
       await this.ensureScheduleLessonTimeShortcutSortOrderColumn(scheduleDatabase);
       await this.ensureScheduleHolidaySourceColumn(scheduleDatabase);
+      await this.ensureScheduleLessonGenerationColumns(scheduleDatabase);
     } finally {
       await scheduleDatabase.close();
     }
@@ -1968,7 +2634,11 @@ export class ScheduleService implements OnModuleInit {
       {
         section: ScheduleAcademicYearTransferSection.LESSONS,
         label: 'Lista zajec',
-        tables: ['schedule_lessons'],
+        tables: [
+          'schedule_lesson_generations',
+          'schedule_lesson_cycle_ranges',
+          'schedule_lessons',
+        ],
       },
       {
         section: ScheduleAcademicYearTransferSection.STUDY_TRACKS,
@@ -2640,6 +3310,30 @@ END $$;`,
     );
   }
 
+  private async ensureScheduleLessonGenerationColumns(sequelize: Sequelize): Promise<void> {
+    await sequelize.query(
+      `ALTER TABLE "schedule_lessons"
+       ADD COLUMN IF NOT EXISTS "source" VARCHAR(20) NOT NULL DEFAULT '${ScheduleLessonSource.MANUAL}',
+       ADD COLUMN IF NOT EXISTS "generationId" UUID,
+       ADD COLUMN IF NOT EXISTS "sourceLessonId" UUID,
+       ADD COLUMN IF NOT EXISTS "detached" BOOLEAN NOT NULL DEFAULT FALSE`,
+    );
+    await sequelize.query(
+      `UPDATE "schedule_lessons"
+       SET "source" = '${ScheduleLessonSource.MANUAL}'
+       WHERE "source" IS NULL`,
+    );
+    await sequelize.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS "schedule_lessons_unique_generated_occurrence"
+       ON "schedule_lessons" ("generationId", "sourceLessonId", "date")
+       WHERE "source" = '${ScheduleLessonSource.LESSON_RANGE}' AND "detached" = FALSE`,
+    );
+    await sequelize.query(
+      `CREATE INDEX IF NOT EXISTS "schedule_lessons_source_idx"
+       ON "schedule_lessons" ("source")`,
+    );
+  }
+
   private validateHolidayYear(year: number): void {
     if (!Number.isInteger(year) || year < 1900 || year > 2100) {
       throw new BadRequestException('Rok musi byc liczba od 1900 do 2100.');
@@ -2663,6 +3357,24 @@ END $$;`,
       parsedDate.getUTCDate() !== day
     ) {
       throw new BadRequestException('Podany dzien nie istnieje w wybranym miesiacu.');
+    }
+  }
+
+  private validateLessonRangeDate(date: string): void {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+    if (!match) {
+      throw new BadRequestException('Data zakresu ma niepoprawny format.');
+    }
+
+    const selectedDate = new Date(
+      Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])),
+    );
+    if (
+      selectedDate.getUTCFullYear() !== Number(match[1]) ||
+      selectedDate.getUTCMonth() !== Number(match[2]) - 1 ||
+      selectedDate.getUTCDate() !== Number(match[3])
+    ) {
+      throw new BadRequestException('Wybrana data zakresu nie istnieje.');
     }
   }
 
@@ -2822,6 +3534,8 @@ END $$;`,
       studyTrackModel: this.studyTrackModel,
       studyTrackSpecializationModel: this.studyTrackSpecializationModel,
       lessonModel: this.lessonModel,
+      lessonGenerationModel: this.lessonGenerationModel,
+      lessonRangeModel: this.lessonRangeModel,
       dateShortcutModel: this.dateShortcutModel,
       shortcutModel: this.shortcutModel,
     };
@@ -2874,6 +3588,7 @@ END $$;`,
     await this.ensureScheduleAcademicGroupStudyModeColumn(sequelize);
     await this.ensureScheduleLessonTimeShortcutSortOrderColumn(sequelize);
     await this.ensureScheduleHolidaySourceColumn(sequelize);
+    await this.ensureScheduleLessonGenerationColumns(sequelize);
     this.academicYearDatabases.set(databaseName, { sequelize, models });
     return models;
   }
@@ -3063,8 +3778,47 @@ END $$;`,
         groupId: { type: DataTypes.UUID, allowNull: false },
         classTypeId: { type: DataTypes.UUID, allowNull: false },
         noteId: { type: DataTypes.UUID, allowNull: true },
+        source: {
+          type: DataTypes.STRING(20),
+          allowNull: false,
+          defaultValue: ScheduleLessonSource.MANUAL,
+        },
+        generationId: { type: DataTypes.UUID, allowNull: true },
+        sourceLessonId: { type: DataTypes.UUID, allowNull: true },
+        detached: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       },
       { tableName: 'schedule_lessons' },
+    );
+    const lessonGenerationModel = sequelize.define(
+      'ScheduleLessonGeneration',
+      {
+        id: uuidPrimaryKey(),
+        key: {
+          type: DataTypes.STRING(20),
+          allowNull: false,
+          unique: true,
+          defaultValue: 'DEFAULT',
+        },
+        sourceWeekOneDate: { type: DataTypes.DATEONLY, allowNull: false },
+        sourceWeekTwoDate: { type: DataTypes.DATEONLY, allowNull: false },
+        lastAppliedAt: { type: DataTypes.DATE, allowNull: true },
+      },
+      { tableName: 'schedule_lesson_generations' },
+    );
+    const lessonRangeModel = sequelize.define(
+      'ScheduleLessonRange',
+      {
+        id: uuidPrimaryKey(),
+        key: {
+          type: DataTypes.STRING(20),
+          allowNull: false,
+          unique: true,
+          defaultValue: 'DEFAULT',
+        },
+        startDate: { type: DataTypes.DATEONLY, allowNull: false },
+        endDate: { type: DataTypes.DATEONLY, allowNull: false },
+      },
+      { tableName: 'schedule_lesson_cycle_ranges' },
     );
 
     teacherSubjectModel.belongsTo(teacherModel, { foreignKey: 'teacherId', as: 'teacher' });
@@ -3113,6 +3867,8 @@ END $$;`,
       studyTrackModel,
       studyTrackSpecializationModel,
       lessonModel,
+      lessonGenerationModel,
+      lessonRangeModel,
       dateShortcutModel,
       shortcutModel,
     };
@@ -3343,6 +4099,26 @@ END $$;`,
     }
   }
 
+  private async assertLessonDateIsNotHoliday(
+    models: ScheduleDatabaseModels,
+    date: string,
+  ): Promise<void> {
+    const holidays = await models.holidayModel.findAll({
+      attributes: ['name'],
+      where: { date },
+      order: [['name', 'ASC']],
+    });
+    if (holidays.length === 0) {
+      return;
+    }
+
+    const [year, month, day] = date.split('-');
+    const names = holidays.map((holiday: any) => holiday.name).join(', ');
+    throw new ConflictException(
+      `Nie można zapisać zajęć w dniu ${day}.${month}.${year}. Jest to święto: ${names}.`,
+    );
+  }
+
   private async assertNoLessonConflicts(
     models: ScheduleDatabaseModels,
     dto: LessonLike,
@@ -3431,6 +4207,10 @@ END $$;`,
       groupId: lesson.groupId,
       classTypeId: lesson.classTypeId,
       noteId: lesson.noteId,
+      source: lesson.source,
+      generationId: lesson.generationId,
+      sourceLessonId: lesson.sourceLessonId,
+      detached: lesson.detached,
       teacher: lesson.teacher ? this.mapTeacher(lesson.teacher) : null,
       subject: lesson.subject,
       room: lesson.room,
@@ -3590,6 +4370,41 @@ END $$;`,
 
   private overlaps(start: number, end: number, otherStart: number, otherEnd: number): boolean {
     return start < otherEnd && end > otherStart;
+  }
+
+  private parseIsoDate(date: string): Date {
+    const [year, month, day] = date.split('-').map(Number);
+    return new Date(Date.UTC(year, month - 1, day));
+  }
+
+  private formatIsoDate(date: Date): string {
+    return date.toISOString().slice(0, 10);
+  }
+
+  private addDays(date: string, days: number): string {
+    const parsedDate = this.parseIsoDate(date);
+    parsedDate.setUTCDate(parsedDate.getUTCDate() + days);
+    return this.formatIsoDate(parsedDate);
+  }
+
+  private getIsoWeekday(date: string): number {
+    const weekday = this.parseIsoDate(date).getUTCDay();
+    return weekday === 0 ? 7 : weekday;
+  }
+
+  private getMondayDate(date: string): string {
+    return this.addDays(date, 1 - this.getIsoWeekday(date));
+  }
+
+  private getCycleStartMondayDate(date: string): string {
+    const weekday = this.getIsoWeekday(date);
+    if (weekday === 6) {
+      return this.addDays(date, 2);
+    }
+    if (weekday === 7) {
+      return this.addDays(date, 1);
+    }
+    return this.addDays(date, 1 - weekday);
   }
 
   private addLessonHours(hour: number, minute: number, lessonHours: number): string {

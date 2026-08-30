@@ -21,6 +21,7 @@ import {
   CreateScheduleCourseTeacherDto,
   CreateScheduleHolidayDto,
   CreateScheduleLessonDto,
+  CreateScheduleLessonRangeDto,
   CreateScheduleLessonDateShortcutDto,
   CreateScheduleLessonTimeShortcutDto,
   CreateScheduleLocationDto,
@@ -31,6 +32,7 @@ import {
   CreateScheduleTeacherDto,
   CreateScheduleTeacherSubjectDto,
   ImportScheduleAcademicYearBackupDto,
+  PreviewScheduleLessonRangeDto,
   ReorderScheduleLessonTimeShortcutsDto,
   ScheduleLessonFilters,
   TransferScheduleAcademicYearDataDto,
@@ -86,6 +88,36 @@ export class ScheduleController {
   @ApiOperation({ summary: 'Delete a manual holiday' })
   deleteManualHoliday(@Param('id') id: string) {
     return this.scheduleService.deleteManualHoliday(id);
+  }
+
+  @Get('lesson-ranges')
+  @ApiOperation({ summary: 'Get full-time lesson dates and named lesson weeks' })
+  findLessonRanges() {
+    return this.scheduleService.findLessonRanges();
+  }
+
+  @Post('lesson-ranges')
+  @ApiOperation({ summary: 'Create or rename one of two named lesson weeks' })
+  saveLessonRange(@Body() dto: CreateScheduleLessonRangeDto) {
+    return this.scheduleService.saveLessonRange(dto);
+  }
+
+  @Post('lesson-ranges/preview')
+  @ApiOperation({ summary: 'Preview lessons generated from the selected source weeks' })
+  previewLessonRange(@Body() dto: PreviewScheduleLessonRangeDto) {
+    return this.scheduleService.previewLessonRange(dto);
+  }
+
+  @Post('lesson-ranges/apply')
+  @ApiOperation({ summary: 'Apply lessons generated from the selected source weeks' })
+  applyLessonRange(@Body() dto: PreviewScheduleLessonRangeDto) {
+    return this.scheduleService.applyLessonRange(dto);
+  }
+
+  @Delete('lesson-ranges/lessons')
+  @ApiOperation({ summary: 'Delete all lessons generated from the lesson range' })
+  deleteLessonRangeLessons() {
+    return this.scheduleService.deleteLessonRangeLessons();
   }
 
   @Get('shortcuts')

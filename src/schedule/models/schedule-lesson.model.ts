@@ -13,6 +13,11 @@ import { ScheduleNote } from './schedule-note.model';
 import { ScheduleSubject } from './schedule-subject.model';
 import { ScheduleTeacher } from './schedule-teacher.model';
 
+export enum ScheduleLessonSource {
+  MANUAL = 'MANUAL',
+  LESSON_RANGE = 'LESSON_RANGE',
+}
+
 @Table({ tableName: 'schedule_lessons' })
 export class ScheduleLesson extends Model<ScheduleLesson> {
   @Column({
@@ -89,6 +94,32 @@ export class ScheduleLesson extends Model<ScheduleLesson> {
     allowNull: true,
   })
   declare noteId: string;
+
+  @Column({
+    type: DataType.STRING(20),
+    allowNull: false,
+    defaultValue: ScheduleLessonSource.MANUAL,
+  })
+  declare source: ScheduleLessonSource;
+
+  @Column({
+    type: DataType.UUID,
+    allowNull: true,
+  })
+  declare generationId: string | null;
+
+  @Column({
+    type: DataType.UUID,
+    allowNull: true,
+  })
+  declare sourceLessonId: string | null;
+
+  @Column({
+    type: DataType.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+  })
+  declare detached: boolean;
 
   @BelongsTo(() => ScheduleTeacher, 'teacherId')
   declare teacher: ScheduleTeacher;

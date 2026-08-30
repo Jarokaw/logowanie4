@@ -18,6 +18,8 @@ import { ScheduleAcademicYear } from './schedule/models/schedule-academic-year.m
 import { ScheduleClassType } from './schedule/models/schedule-class-type.model';
 import { ScheduleHoliday } from './schedule/models/schedule-holiday.model';
 import { ScheduleLesson } from './schedule/models/schedule-lesson.model';
+import { ScheduleLessonGeneration } from './schedule/models/schedule-lesson-generation.model';
+import { ScheduleLessonRange } from './schedule/models/schedule-lesson-range.model';
 import { ScheduleLessonDateShortcut } from './schedule/models/schedule-lesson-date-shortcut.model';
 import { ScheduleLessonTimeShortcut } from './schedule/models/schedule-lesson-time-shortcut.model';
 import { ScheduleLocation } from './schedule/models/schedule-location.model';
@@ -57,6 +59,8 @@ import { ScheduleTeacher } from './schedule/models/schedule-teacher.model';
       ScheduleStudyTrackSpecialization,
       ScheduleAcademicYear,
       ScheduleLesson,
+      ScheduleLessonGeneration,
+      ScheduleLessonRange,
       ScheduleLessonDateShortcut,
       ScheduleLessonTimeShortcut,
     ], // rejestracja modeli

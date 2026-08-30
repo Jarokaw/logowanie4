@@ -208,6 +208,30 @@ export class CreateScheduleHolidayDto {
   name: string;
 }
 
+export class CreateScheduleLessonRangeDto {
+  @ApiProperty({ example: '2026-10-01' })
+  @IsDateString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  startDate: string;
+
+  @ApiProperty({ example: '2027-01-31' })
+  @IsDateString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  endDate: string;
+}
+
+export class PreviewScheduleLessonRangeDto {
+  @ApiProperty({ example: '2026-10-05' })
+  @IsDateString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  sourceWeekOneDate: string;
+
+  @ApiProperty({ example: '2026-10-12' })
+  @IsDateString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  sourceWeekTwoDate: string;
+}
+
 export class CreateScheduleLessonTimeShortcutDto {
   @ApiProperty({ example: 8 })
   @IsInt()

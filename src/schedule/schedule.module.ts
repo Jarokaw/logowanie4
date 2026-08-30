@@ -5,6 +5,8 @@ import { ScheduleAcademicYear } from './models/schedule-academic-year.model';
 import { ScheduleClassType } from './models/schedule-class-type.model';
 import { ScheduleHoliday } from './models/schedule-holiday.model';
 import { ScheduleLesson } from './models/schedule-lesson.model';
+import { ScheduleLessonGeneration } from './models/schedule-lesson-generation.model';
+import { ScheduleLessonRange } from './models/schedule-lesson-range.model';
 import { ScheduleLessonDateShortcut } from './models/schedule-lesson-date-shortcut.model';
 import { ScheduleLessonTimeShortcut } from './models/schedule-lesson-time-shortcut.model';
 import { ScheduleLocation } from './models/schedule-location.model';
@@ -35,6 +37,8 @@ import { StudentScheduleController } from './student-schedule.controller';
       ScheduleStudyTrackSpecialization,
       ScheduleAcademicYear,
       ScheduleLesson,
+      ScheduleLessonGeneration,
+      ScheduleLessonRange,
       ScheduleLessonDateShortcut,
       ScheduleLessonTimeShortcut,
     ]),
