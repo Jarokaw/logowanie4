@@ -5,6 +5,7 @@ import {
   IsBoolean,
   IsDateString,
   IsEnum,
+  IsIn,
   IsInt,
   IsArray,
   IsOptional,
@@ -250,6 +251,20 @@ export class CreateScheduleLessonTimeShortcutDto {
   @Min(1)
   @Max(9)
   lessonHours: number;
+
+  @ApiProperty({
+    enum: [
+      ScheduleStudyMode.FULL_TIME,
+      ScheduleStudyMode.PART_TIME,
+      ScheduleStudyMode.POSTGRADUATE,
+    ],
+  })
+  @IsIn([
+    ScheduleStudyMode.FULL_TIME,
+    ScheduleStudyMode.PART_TIME,
+    ScheduleStudyMode.POSTGRADUATE,
+  ])
+  studyMode: ScheduleStudyMode;
 }
 
 export class UpdateScheduleLessonTimeShortcutDto extends CreateScheduleLessonTimeShortcutDto {}
@@ -261,6 +276,20 @@ export class ReorderScheduleLessonTimeShortcutsDto {
   @ArrayUnique()
   @IsUUID('4', { each: true })
   shortcutIds: string[];
+
+  @ApiProperty({
+    enum: [
+      ScheduleStudyMode.FULL_TIME,
+      ScheduleStudyMode.PART_TIME,
+      ScheduleStudyMode.POSTGRADUATE,
+    ],
+  })
+  @IsIn([
+    ScheduleStudyMode.FULL_TIME,
+    ScheduleStudyMode.PART_TIME,
+    ScheduleStudyMode.POSTGRADUATE,
+  ])
+  studyMode: ScheduleStudyMode;
 }
 
 export class CreateScheduleLessonDateShortcutDto {
@@ -274,6 +303,20 @@ export class CreateScheduleLessonDateShortcutDto {
   @Min(1)
   @Max(2)
   week: number;
+
+  @ApiProperty({
+    enum: [
+      ScheduleStudyMode.FULL_TIME,
+      ScheduleStudyMode.PART_TIME,
+      ScheduleStudyMode.POSTGRADUATE,
+    ],
+  })
+  @IsIn([
+    ScheduleStudyMode.FULL_TIME,
+    ScheduleStudyMode.PART_TIME,
+    ScheduleStudyMode.POSTGRADUATE,
+  ])
+  studyMode: ScheduleStudyMode;
 }
 
 export class UpdateScheduleLessonDateShortcutDto extends CreateScheduleLessonDateShortcutDto {}

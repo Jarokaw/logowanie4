@@ -122,8 +122,8 @@ export class ScheduleController {
 
   @Get('shortcuts')
   @ApiOperation({ summary: 'Get lesson time shortcuts' })
-  findLessonTimeShortcuts() {
-    return this.scheduleService.findLessonTimeShortcuts();
+  findLessonTimeShortcuts(@Query('studyMode') studyMode?: string) {
+    return this.scheduleService.findLessonTimeShortcuts(studyMode);
   }
 
   @Post('shortcuts')
@@ -155,8 +155,8 @@ export class ScheduleController {
 
   @Get('date-shortcuts')
   @ApiOperation({ summary: 'Get lesson date shortcuts' })
-  findLessonDateShortcuts() {
-    return this.scheduleService.findLessonDateShortcuts();
+  findLessonDateShortcuts(@Query('studyMode') studyMode?: string) {
+    return this.scheduleService.findLessonDateShortcuts(studyMode);
   }
 
   @Post('date-shortcuts')

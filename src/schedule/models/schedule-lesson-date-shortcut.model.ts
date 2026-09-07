@@ -1,15 +1,7 @@
 import { Column, DataType, Model, Table } from 'sequelize-typescript';
+import { ScheduleStudyMode } from './schedule-academic-group.model';
 
-@Table({
-  tableName: 'schedule_lesson_date_shortcuts',
-  indexes: [
-    {
-      name: 'schedule_lesson_date_shortcuts_unique_date_week',
-      unique: true,
-      fields: ['date', 'week'],
-    },
-  ],
-})
+@Table({ tableName: 'schedule_lesson_date_shortcuts' })
 export class ScheduleLessonDateShortcut extends Model<ScheduleLessonDateShortcut> {
   @Column({
     type: DataType.UUID,
@@ -31,4 +23,11 @@ export class ScheduleLessonDateShortcut extends Model<ScheduleLessonDateShortcut
     allowNull: false,
   })
   declare week: number;
+
+  @Column({
+    type: DataType.STRING(30),
+    allowNull: false,
+    defaultValue: ScheduleStudyMode.FULL_TIME,
+  })
+  declare studyMode: ScheduleStudyMode;
 }

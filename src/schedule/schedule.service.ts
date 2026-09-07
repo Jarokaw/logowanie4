@@ -299,6 +299,7 @@ export class ScheduleService implements OnModuleInit {
     await this.ensureScheduleAcademicGroupLevelSupportsWorkshop(this.sequelize);
     await this.ensureScheduleAcademicGroupStudyModeColumn(this.sequelize);
     await this.ensureScheduleLessonTimeShortcutSortOrderColumn(this.sequelize);
+    await this.ensureScheduleLessonShortcutStudyModeColumns(this.sequelize);
     await this.ensureScheduleHolidaySourceColumn(this.sequelize);
     await this.ensureScheduleLessonGenerationColumns(this.sequelize);
     await this.seedDefaultDictionaries();
@@ -1081,9 +1082,11 @@ export class ScheduleService implements OnModuleInit {
     };
   }
 
-  async findLessonTimeShortcuts() {
+  async findLessonTimeShortcuts(requestedStudyMode?: string) {
     const models = await this.getScheduleModels();
+    const studyMode = this.resolveShortcutStudyMode(requestedStudyMode);
     return models.shortcutModel.findAll({
+      where: { studyMode },
       order: [
         ['sortOrder', 'ASC'],
         ['startHour', 'ASC'],
@@ -1095,11 +1098,13 @@ export class ScheduleService implements OnModuleInit {
 
   async createLessonTimeShortcut(dto: CreateScheduleLessonTimeShortcutDto) {
     const models = await this.getScheduleModels();
+    const studyMode = this.resolveShortcutStudyMode(dto.studyMode);
     const existingShortcut = await models.shortcutModel.findOne({
       where: {
         startHour: dto.startHour,
         startMinute: dto.startMinute,
         lessonHours: dto.lessonHours,
+        studyMode,
       },
     });
 
@@ -1108,17 +1113,22 @@ export class ScheduleService implements OnModuleInit {
     }
 
     const highestSortOrder = Number(
-      (await models.shortcutModel.max('sortOrder')) ?? -1,
+      (await models.shortcutModel.max('sortOrder', { where: { studyMode } })) ?? -1,
     );
     return models.shortcutModel.create({
       ...dto,
+      studyMode,
       sortOrder: Number.isFinite(highestSortOrder) ? highestSortOrder + 1 : 0,
     });
   }
 
   async reorderLessonTimeShortcuts(dto: ReorderScheduleLessonTimeShortcutsDto) {
     const models = await this.getScheduleModels();
-    const shortcuts = await models.shortcutModel.findAll({ attributes: ['id'] });
+    const studyMode = this.resolveShortcutStudyMode(dto.studyMode);
+    const shortcuts = await models.shortcutModel.findAll({
+      attributes: ['id'],
+      where: { studyMode },
+    });
     const existingIds = new Set(shortcuts.map((shortcut) => shortcut.id));
 
     if (
@@ -1134,7 +1144,7 @@ export class ScheduleService implements OnModuleInit {
         dto.shortcutIds.map((id, sortOrder) =>
           models.shortcutModel.update(
             { sortOrder },
-            { where: { id }, transaction },
+            { where: { id, studyMode }, transaction },
           ),
         ),
       );
@@ -1144,7 +1154,7 @@ export class ScheduleService implements OnModuleInit {
       throw error;
     }
 
-    return this.findLessonTimeShortcuts();
+    return this.findLessonTimeShortcuts(studyMode);
   }
 
   async updateLessonTimeShortcut(
@@ -1152,6 +1162,7 @@ export class ScheduleService implements OnModuleInit {
     dto: UpdateScheduleLessonTimeShortcutDto,
   ) {
     const models = await this.getScheduleModels();
+    const studyMode = this.resolveShortcutStudyMode(dto.studyMode);
     const shortcut = await models.shortcutModel.findByPk(id);
     if (!shortcut) {
       throw new NotFoundException('Nie znaleziono skrótu czasu.');
@@ -1163,6 +1174,7 @@ export class ScheduleService implements OnModuleInit {
         startHour: dto.startHour,
         startMinute: dto.startMinute,
         lessonHours: dto.lessonHours,
+        studyMode,
       },
     });
 
@@ -1170,7 +1182,7 @@ export class ScheduleService implements OnModuleInit {
       throw new ConflictException('Taki skrót czasu już istnieje.');
     }
 
-    await shortcut.update(dto);
+    await shortcut.update({ ...dto, studyMode });
     return shortcut;
   }
 
@@ -1185,17 +1197,19 @@ export class ScheduleService implements OnModuleInit {
     return { deleted: true, id };
   }
 
-  async findLessonDateShortcuts() {
+  async findLessonDateShortcuts(requestedStudyMode?: string) {
     const models = await this.getScheduleModels();
-    const shortcuts = await models.dateShortcutModel.findAll();
+    const studyMode = this.resolveShortcutStudyMode(requestedStudyMode);
+    const shortcuts = await models.dateShortcutModel.findAll({ where: { studyMode } });
     return this.sortLessonDateShortcuts(shortcuts);
   }
 
   async createLessonDateShortcut(dto: CreateScheduleLessonDateShortcutDto) {
     const models = await this.getScheduleModels();
+    const studyMode = this.resolveShortcutStudyMode(dto.studyMode);
     this.validateLessonDateShortcutDate(dto.date);
-    await this.validateUniqueLessonDateShortcut(models, dto.date, dto.week);
-    return models.dateShortcutModel.create(dto);
+    await this.validateUniqueLessonDateShortcut(models, dto.date, dto.week, studyMode);
+    return models.dateShortcutModel.create({ ...dto, studyMode });
   }
 
   async updateLessonDateShortcut(
@@ -1203,14 +1217,15 @@ export class ScheduleService implements OnModuleInit {
     dto: UpdateScheduleLessonDateShortcutDto,
   ) {
     const models = await this.getScheduleModels();
+    const studyMode = this.resolveShortcutStudyMode(dto.studyMode);
     const shortcut = await models.dateShortcutModel.findByPk(id);
     if (!shortcut) {
       throw new NotFoundException('Nie znaleziono skrótu daty.');
     }
 
     this.validateLessonDateShortcutDate(dto.date);
-    await this.validateUniqueLessonDateShortcut(models, dto.date, dto.week, id);
-    await shortcut.update(dto);
+    await this.validateUniqueLessonDateShortcut(models, dto.date, dto.week, studyMode, id);
+    await shortcut.update({ ...dto, studyMode });
     return shortcut;
   }
 
@@ -2526,6 +2541,7 @@ export class ScheduleService implements OnModuleInit {
       await scheduleDatabase.sync();
       await this.ensureScheduleAcademicGroupStudyModeColumn(scheduleDatabase);
       await this.ensureScheduleLessonTimeShortcutSortOrderColumn(scheduleDatabase);
+      await this.ensureScheduleLessonShortcutStudyModeColumns(scheduleDatabase);
       await this.ensureScheduleHolidaySourceColumn(scheduleDatabase);
       await this.ensureScheduleLessonGenerationColumns(scheduleDatabase);
     } finally {
@@ -3288,6 +3304,50 @@ END $$;`,
     );
   }
 
+  private async ensureScheduleLessonShortcutStudyModeColumns(
+    sequelize: Sequelize,
+  ): Promise<void> {
+    const defaultStudyMode = ScheduleStudyMode.FULL_TIME;
+    const allowedStudyModes = [
+      ScheduleStudyMode.FULL_TIME,
+      ScheduleStudyMode.PART_TIME,
+      ScheduleStudyMode.POSTGRADUATE,
+    ];
+    const allowedValues = allowedStudyModes.map((value) => `'${value}'`).join(', ');
+
+    for (const tableName of [
+      'schedule_lesson_time_shortcuts',
+      'schedule_lesson_date_shortcuts',
+    ]) {
+      await sequelize.query(
+        `ALTER TABLE "${tableName}"
+         ADD COLUMN IF NOT EXISTS "studyMode" VARCHAR(30) NOT NULL DEFAULT '${defaultStudyMode}'`,
+      );
+      await sequelize.query(
+        `UPDATE "${tableName}"
+         SET "studyMode" = '${defaultStudyMode}'
+         WHERE "studyMode" IS NULL OR "studyMode" NOT IN (${allowedValues})`,
+      );
+      await sequelize.query(
+        `ALTER TABLE "${tableName}"
+         ALTER COLUMN "studyMode" SET DEFAULT '${defaultStudyMode}',
+         ALTER COLUMN "studyMode" SET NOT NULL`,
+      );
+    }
+
+    await sequelize.query('DROP INDEX IF EXISTS "schedule_lesson_time_shortcuts_unique_time"');
+    await sequelize.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS "schedule_lesson_time_shortcuts_unique_time_mode"
+       ON "schedule_lesson_time_shortcuts"
+       ("startHour", "startMinute", "lessonHours", "studyMode")`,
+    );
+    await sequelize.query('DROP INDEX IF EXISTS "schedule_lesson_date_shortcuts_unique_date_week"');
+    await sequelize.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS "schedule_lesson_date_shortcuts_unique_date_week_mode"
+       ON "schedule_lesson_date_shortcuts" ("date", "week", "studyMode")`,
+    );
+  }
+
   private async ensureScheduleHolidaySourceColumn(sequelize: Sequelize): Promise<void> {
     await sequelize.query(
       `ALTER TABLE "schedule_holidays"
@@ -3587,6 +3647,7 @@ END $$;`,
     await sequelize.sync();
     await this.ensureScheduleAcademicGroupStudyModeColumn(sequelize);
     await this.ensureScheduleLessonTimeShortcutSortOrderColumn(sequelize);
+    await this.ensureScheduleLessonShortcutStudyModeColumns(sequelize);
     await this.ensureScheduleHolidaySourceColumn(sequelize);
     await this.ensureScheduleLessonGenerationColumns(sequelize);
     this.academicYearDatabases.set(databaseName, { sequelize, models });
@@ -3733,18 +3794,14 @@ END $$;`,
         startHour: { type: DataTypes.INTEGER, allowNull: false },
         startMinute: { type: DataTypes.INTEGER, allowNull: false },
         lessonHours: { type: DataTypes.INTEGER, allowNull: false },
+        studyMode: {
+          type: DataTypes.STRING(30),
+          allowNull: false,
+          defaultValue: ScheduleStudyMode.FULL_TIME,
+        },
         sortOrder: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
       },
-      {
-        tableName: 'schedule_lesson_time_shortcuts',
-        indexes: [
-          {
-            name: 'schedule_lesson_time_shortcuts_unique_time',
-            unique: true,
-            fields: ['startHour', 'startMinute', 'lessonHours'],
-          },
-        ],
-      },
+      { tableName: 'schedule_lesson_time_shortcuts' },
     );
     const dateShortcutModel = sequelize.define(
       'ScheduleLessonDateShortcut',
@@ -3752,17 +3809,13 @@ END $$;`,
         id: uuidPrimaryKey(),
         date: { type: DataTypes.DATEONLY, allowNull: false },
         week: { type: DataTypes.INTEGER, allowNull: false },
+        studyMode: {
+          type: DataTypes.STRING(30),
+          allowNull: false,
+          defaultValue: ScheduleStudyMode.FULL_TIME,
+        },
       },
-      {
-        tableName: 'schedule_lesson_date_shortcuts',
-        indexes: [
-          {
-            name: 'schedule_lesson_date_shortcuts_unique_date_week',
-            unique: true,
-            fields: ['date', 'week'],
-          },
-        ],
-      },
+      { tableName: 'schedule_lesson_date_shortcuts' },
     );
     const lessonModel = sequelize.define(
       'ScheduleLesson',
@@ -4346,9 +4399,10 @@ END $$;`,
     models: ScheduleDatabaseModels,
     date: string,
     week: number,
+    studyMode: ScheduleStudyMode,
     excludedId?: string,
   ): Promise<void> {
-    const where: any = { date, week };
+    const where: any = { date, week, studyMode };
     if (excludedId) {
       where.id = { [Op.ne]: excludedId };
     }
@@ -4357,6 +4411,21 @@ END $$;`,
     if (existingShortcut) {
       throw new ConflictException('Taki skrót daty już istnieje w wybranym tygodniu.');
     }
+  }
+
+  private resolveShortcutStudyMode(studyMode?: string): ScheduleStudyMode {
+    const resolvedStudyMode = studyMode ?? ScheduleStudyMode.FULL_TIME;
+    const allowedStudyModes: ScheduleStudyMode[] = [
+      ScheduleStudyMode.FULL_TIME,
+      ScheduleStudyMode.PART_TIME,
+      ScheduleStudyMode.POSTGRADUATE,
+    ];
+
+    if (!allowedStudyModes.includes(resolvedStudyMode as ScheduleStudyMode)) {
+      throw new BadRequestException('Nieprawidlowy rodzaj kierunku dla skrotow.');
+    }
+
+    return resolvedStudyMode as ScheduleStudyMode;
   }
 
   private lessonDateWeekdayNumber(date: string): number {
