@@ -585,8 +585,10 @@ export interface ScheduleLessonFilters {
   from?: string;
   to?: string;
   teacherId?: string;
+  subjectId?: string;
   buildingId?: string;
   roomId?: string;
   groupId?: string;
+  classTypeId?: string;
   limit?: number;
 }

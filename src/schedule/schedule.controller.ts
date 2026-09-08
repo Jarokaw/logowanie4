@@ -300,12 +300,30 @@ export class ScheduleController {
       from: query.from,
       to: query.to,
       teacherId: query.teacherId,
+      subjectId: query.subjectId,
       buildingId: query.buildingId,
       roomId: query.roomId,
       groupId: query.groupId,
+      classTypeId: query.classTypeId,
       limit: query.limit ? Number(query.limit) : undefined,
     };
     return this.scheduleService.findLessons(filters);
+  }
+
+  @Get('hour-count')
+  @ApiOperation({ summary: 'Count lesson hours using schedule filters' })
+  countLessonHours(@Query() query: Record<string, string>) {
+    const filters: ScheduleLessonFilters = {
+      from: query.from,
+      to: query.to,
+      teacherId: query.teacherId,
+      subjectId: query.subjectId,
+      buildingId: query.buildingId,
+      roomId: query.roomId,
+      groupId: query.groupId,
+      classTypeId: query.classTypeId,
+    };
+    return this.scheduleService.countLessonHours(filters);
   }
 
   @Get('lessons/:id')

@@ -1514,6 +1514,26 @@ export class ScheduleService implements OnModuleInit {
     return this.findLessonsForModels(models, filters);
   }
 
+  async countLessonHours(filters: ScheduleLessonFilters = {}) {
+    if (filters.from && filters.to && filters.from > filters.to) {
+      throw new BadRequestException('Data początkowa nie może być późniejsza niż data końcowa.');
+    }
+
+    const models = await this.getScheduleModels();
+    const where = await this.buildLessonFilterWhere(models, filters, true);
+    const [lessonCount, lessonHoursValue] = await Promise.all([
+      models.lessonModel.count({ where }),
+      models.lessonModel.sum('lessonHours', { where }),
+    ]);
+    const lessonHours = Number(lessonHoursValue ?? 0);
+
+    return {
+      lessonHours,
+      lessonCount,
+      minutes: lessonHours * 45,
+    };
+  }
+
   async findStudentDictionaries() {
     const models = await this.getStudentScheduleModels();
     const [groups, teachers] = await Promise.all([
@@ -1557,6 +1577,29 @@ export class ScheduleService implements OnModuleInit {
     models: ScheduleDatabaseModels,
     filters: ScheduleLessonFilters = {},
   ) {
+    const where = await this.buildLessonFilterWhere(models, filters);
+
+    const limit = Math.min(Math.max(filters.limit ?? 200, 1), 5000);
+
+    const lessons = await models.lessonModel.findAll({
+      where,
+      include: this.lessonIncludes(models),
+      order: [
+        ['date', 'ASC'],
+        ['startHour', 'ASC'],
+        ['startMinute', 'ASC'],
+      ],
+      limit,
+    });
+
+    return lessons.map((lesson) => this.mapLesson(lesson));
+  }
+
+  private async buildLessonFilterWhere(
+    models: ScheduleDatabaseModels,
+    filters: ScheduleLessonFilters,
+    includeGroupAncestors = false,
+  ): Promise<any> {
     const where: any = {};
     if (filters.from || filters.to) {
       where.date = {
@@ -1565,6 +1608,9 @@ export class ScheduleService implements OnModuleInit {
     }
     if (filters.teacherId) {
       where.teacherId = filters.teacherId;
+    }
+    if (filters.subjectId) {
+      where.subjectId = filters.subjectId;
     }
     if (filters.buildingId) {
       const roomWhere: any = {
@@ -1582,23 +1628,16 @@ export class ScheduleService implements OnModuleInit {
       where.roomId = filters.roomId;
     }
     if (filters.groupId) {
-      where.groupId = { [Op.in]: await this.getGroupAndDescendantIds(models, filters.groupId) };
+      const groupIds = includeGroupAncestors
+        ? Array.from(await this.getGroupConflictIds(models, filters.groupId))
+        : await this.getGroupAndDescendantIds(models, filters.groupId);
+      where.groupId = { [Op.in]: groupIds };
+    }
+    if (filters.classTypeId) {
+      where.classTypeId = filters.classTypeId;
     }
 
-    const limit = Math.min(Math.max(filters.limit ?? 200, 1), 5000);
-
-    const lessons = await models.lessonModel.findAll({
-      where,
-      include: this.lessonIncludes(models),
-      order: [
-        ['date', 'ASC'],
-        ['startHour', 'ASC'],
-        ['startMinute', 'ASC'],
-      ],
-      limit,
-    });
-
-    return lessons.map((lesson) => this.mapLesson(lesson));
+    return where;
   }
 
   async createSubject(dto: CreateScheduleSubjectDto) {
