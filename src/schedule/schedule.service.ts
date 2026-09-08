@@ -1584,11 +1584,16 @@ export class ScheduleService implements OnModuleInit {
     const lessons = await models.lessonModel.findAll({
       where,
       include: this.lessonIncludes(models),
-      order: [
-        ['date', 'ASC'],
-        ['startHour', 'ASC'],
-        ['startMinute', 'ASC'],
-      ],
+      order: filters.creationOrder
+        ? [
+            ['createdAt', filters.creationOrder === 'asc' ? 'ASC' : 'DESC'],
+            ['id', filters.creationOrder === 'asc' ? 'ASC' : 'DESC'],
+          ]
+        : [
+            ['date', 'ASC'],
+            ['startHour', 'ASC'],
+            ['startMinute', 'ASC'],
+          ],
       limit,
     });
 
@@ -4283,9 +4288,11 @@ END $$;`,
   private mapLesson(lesson: ScheduleLesson) {
     const startTime = this.formatTime(lesson.startHour, lesson.startMinute);
     const endTime = this.addLessonHours(lesson.startHour, lesson.startMinute, lesson.lessonHours);
+    const createdAt = (lesson as ScheduleLesson & { createdAt?: Date | string }).createdAt;
 
     return {
       id: lesson.id,
+      createdAt: createdAt instanceof Date ? createdAt.toISOString() : String(createdAt ?? ''),
       date: lesson.date,
       weekday: this.weekday(lesson.date),
       startHour: lesson.startHour,

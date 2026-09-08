@@ -590,5 +590,6 @@ export interface ScheduleLessonFilters {
   roomId?: string;
   groupId?: string;
   classTypeId?: string;
+  creationOrder?: 'asc' | 'desc';
   limit?: number;
 }

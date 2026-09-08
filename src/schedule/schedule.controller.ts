@@ -305,6 +305,10 @@ export class ScheduleController {
       roomId: query.roomId,
       groupId: query.groupId,
       classTypeId: query.classTypeId,
+      creationOrder:
+        query.creationOrder === 'asc' || query.creationOrder === 'desc'
+          ? query.creationOrder
+          : undefined,
       limit: query.limit ? Number(query.limit) : undefined,
     };
     return this.scheduleService.findLessons(filters);
