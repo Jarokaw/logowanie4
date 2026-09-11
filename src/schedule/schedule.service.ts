@@ -50,7 +50,10 @@ import {
   ScheduleGroupLevel,
   ScheduleStudyMode,
 } from './models/schedule-academic-group.model';
-import { ScheduleAcademicYear } from './models/schedule-academic-year.model';
+import {
+  ScheduleAcademicSemester,
+  ScheduleAcademicYear,
+} from './models/schedule-academic-year.model';
 import { ScheduleClassType } from './models/schedule-class-type.model';
 import {
   ScheduleHoliday,
@@ -296,6 +299,7 @@ export class ScheduleService implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     await this.ensureAcademicYearActivityColumns();
+    await this.ensureAcademicYearSemesterColumn();
     await this.ensureScheduleAcademicGroupLevelSupportsWorkshop(this.sequelize);
     await this.ensureScheduleAcademicGroupStudyModeColumn(this.sequelize);
     await this.ensureScheduleLessonTimeShortcutSortOrderColumn(this.sequelize);
@@ -3281,6 +3285,26 @@ END $$;`,
     );
     await this.sequelize.query(
       'ALTER TABLE "schedule_academic_years" ADD COLUMN IF NOT EXISTS "activeForStudent" BOOLEAN NOT NULL DEFAULT false',
+    );
+  }
+
+  private async ensureAcademicYearSemesterColumn(): Promise<void> {
+    await this.sequelize.query(
+      'ALTER TABLE "schedule_academic_years" ADD COLUMN IF NOT EXISTS "semester" VARCHAR(6)',
+    );
+    await this.sequelize.query(
+      `DO $$
+       BEGIN
+         IF NOT EXISTS (
+           SELECT 1 FROM pg_constraint
+           WHERE conname = 'schedule_academic_years_semester_allowed'
+             AND conrelid = 'schedule_academic_years'::regclass
+         ) THEN
+           ALTER TABLE "schedule_academic_years"
+           ADD CONSTRAINT "schedule_academic_years_semester_allowed"
+           CHECK ("semester" IN ('${ScheduleAcademicSemester.WINTER}', '${ScheduleAcademicSemester.SUMMER}'));
+         END IF;
+       END $$`,
     );
   }
 

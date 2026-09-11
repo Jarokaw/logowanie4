@@ -15,11 +15,13 @@ import {
   Matches,
   Max,
   Min,
+  ValidateIf,
 } from 'class-validator';
 import {
   ScheduleGroupLevel,
   ScheduleStudyMode,
 } from '../models/schedule-academic-group.model';
+import { ScheduleAcademicSemester } from '../models/schedule-academic-year.model';
 import { ScheduleLocationType } from '../models/schedule-location.model';
 
 export class CreateScheduleSubjectDto {
@@ -54,6 +56,10 @@ export class CreateScheduleAcademicYearDto {
   @Matches(/^[A-Za-z0-9_]+$/)
   name: string;
 
+  @ApiProperty({ enum: ScheduleAcademicSemester })
+  @IsEnum(ScheduleAcademicSemester)
+  semester: ScheduleAcademicSemester;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
@@ -67,6 +73,11 @@ export class UpdateScheduleAcademicYearDto {
   @Length(2, 63)
   @Matches(/^[A-Za-z0-9_]+$/)
   name?: string;
+
+  @ApiPropertyOptional({ enum: ScheduleAcademicSemester })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsEnum(ScheduleAcademicSemester)
+  semester?: ScheduleAcademicSemester;
 
   @ApiPropertyOptional()
   @IsOptional()

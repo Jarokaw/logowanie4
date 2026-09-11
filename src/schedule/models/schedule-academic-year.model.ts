@@ -1,5 +1,10 @@
 import { Column, DataType, Model, Table } from 'sequelize-typescript';
 
+export enum ScheduleAcademicSemester {
+  WINTER = 'WINTER',
+  SUMMER = 'SUMMER',
+}
+
 @Table({ tableName: 'schedule_academic_years' })
 export class ScheduleAcademicYear extends Model<ScheduleAcademicYear> {
   @Column({
@@ -16,6 +21,12 @@ export class ScheduleAcademicYear extends Model<ScheduleAcademicYear> {
     allowNull: false,
   })
   declare name: string;
+
+  @Column({
+    type: DataType.STRING(6),
+    allowNull: true,
+  })
+  declare semester: ScheduleAcademicSemester | null;
 
   @Column({
     type: DataType.BOOLEAN,
