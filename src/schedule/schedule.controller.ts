@@ -41,6 +41,7 @@ import {
   UpdateScheduleClassTypeDto,
   UpdateScheduleLessonDto,
   UpdateScheduleLessonDateShortcutDto,
+  UpdateScheduleLessonRangeNamesDto,
   UpdateScheduleLessonTimeShortcutDto,
   UpdateScheduleLocationDto,
   UpdateScheduleNoteDto,
@@ -100,6 +101,12 @@ export class ScheduleController {
   @ApiOperation({ summary: 'Create or rename one of two named lesson weeks' })
   saveLessonRange(@Body() dto: CreateScheduleLessonRangeDto) {
     return this.scheduleService.saveLessonRange(dto);
+  }
+
+  @Patch('lesson-ranges/names')
+  @ApiOperation({ summary: 'Update lesson cycle week names' })
+  updateLessonRangeNames(@Body() dto: UpdateScheduleLessonRangeNamesDto) {
+    return this.scheduleService.updateLessonRangeNames(dto);
   }
 
   @Post('lesson-ranges/preview')
@@ -299,6 +306,10 @@ export class ScheduleController {
     const filters: ScheduleLessonFilters = {
       from: query.from,
       to: query.to,
+      source:
+        query.source === 'MANUAL' || query.source === 'LESSON_RANGE'
+          ? query.source
+          : undefined,
       teacherId: query.teacherId,
       subjectId: query.subjectId,
       buildingId: query.buildingId,

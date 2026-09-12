@@ -232,6 +232,20 @@ export class CreateScheduleLessonRangeDto {
   endDate: string;
 }
 
+export class UpdateScheduleLessonRangeNamesDto {
+  @ApiProperty({ example: 'Tydzie\u0144 1' })
+  @IsString()
+  @Length(1, 60)
+  @Matches(/\S/)
+  weekOneName: string;
+
+  @ApiProperty({ example: 'Tydzie\u0144 2' })
+  @IsString()
+  @Length(1, 60)
+  @Matches(/\S/)
+  weekTwoName: string;
+}
+
 export class PreviewScheduleLessonRangeDto {
   @ApiProperty({ example: '2026-10-05' })
   @IsDateString()
@@ -595,6 +609,7 @@ export class UpdateScheduleLessonDto {
 export interface ScheduleLessonFilters {
   from?: string;
   to?: string;
+  source?: 'MANUAL' | 'LESSON_RANGE';
   teacherId?: string;
   subjectId?: string;
   buildingId?: string;

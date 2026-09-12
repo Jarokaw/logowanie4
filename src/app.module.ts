@@ -30,6 +30,8 @@ import { ScheduleStudyTrackSpecialization } from './schedule/models/schedule-stu
 import { ScheduleSubject } from './schedule/models/schedule-subject.model';
 import { ScheduleTeacherSubject } from './schedule/models/schedule-teacher-subject.model';
 import { ScheduleTeacher } from './schedule/models/schedule-teacher.model';
+import { ScheduleStudentPrintSettings } from './schedule/models/schedule-student-print-settings.model';
+import { SchedulePrintSettings } from './schedule/models/schedule-print-settings.model';
 
 @Module({
   imports: [ConfigModule.forRoot({
@@ -63,6 +65,8 @@ import { ScheduleTeacher } from './schedule/models/schedule-teacher.model';
       ScheduleLessonRange,
       ScheduleLessonDateShortcut,
       ScheduleLessonTimeShortcut,
+      ScheduleStudentPrintSettings,
+      SchedulePrintSettings,
     ], // rejestracja modeli
     autoLoadModels: true, // automatyczne ładowanie modeli
     synchronize: true, // synchronizacja bazy danych z modelami (nie zalecane w produkcji)

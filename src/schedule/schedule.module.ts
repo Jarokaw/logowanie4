@@ -20,6 +20,10 @@ import { ScheduleTeacher } from './models/schedule-teacher.model';
 import { ScheduleController } from './schedule.controller';
 import { ScheduleService } from './schedule.service';
 import { StudentScheduleController } from './student-schedule.controller';
+import { ScheduleStudentPrintSettings } from './models/schedule-student-print-settings.model';
+import { SchedulePrintSettings } from './models/schedule-print-settings.model';
+import { StudentPrintSettingsController } from './student-print-settings.controller';
+import { StudentPrintSettingsService } from './student-print-settings.service';
 
 @Module({
   imports: [
@@ -41,9 +45,11 @@ import { StudentScheduleController } from './student-schedule.controller';
       ScheduleLessonRange,
       ScheduleLessonDateShortcut,
       ScheduleLessonTimeShortcut,
+      ScheduleStudentPrintSettings,
+      SchedulePrintSettings,
     ]),
   ],
-  controllers: [ScheduleController, StudentScheduleController],
-  providers: [ScheduleService],
+  controllers: [ScheduleController, StudentScheduleController, StudentPrintSettingsController],
+  providers: [ScheduleService, StudentPrintSettingsService],
 })
 export class ScheduleModule {}

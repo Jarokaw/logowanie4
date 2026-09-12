@@ -31,4 +31,18 @@ export class ScheduleLessonRange extends Model<ScheduleLessonRange> {
   })
   declare endDate: string;
 
+  @Column({
+    type: DataType.STRING(60),
+    allowNull: false,
+    defaultValue: 'Tydzie\u0144 1',
+  })
+  declare weekOneName: string;
+
+  @Column({
+    type: DataType.STRING(60),
+    allowNull: false,
+    defaultValue: 'Tydzie\u0144 2',
+  })
+  declare weekTwoName: string;
+
 }

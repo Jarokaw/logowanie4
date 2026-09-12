@@ -38,6 +38,7 @@ import {
   UpdateScheduleClassTypeDto,
   UpdateScheduleLessonDateShortcutDto,
   UpdateScheduleLessonDto,
+  UpdateScheduleLessonRangeNamesDto,
   UpdateScheduleLessonTimeShortcutDto,
   UpdateScheduleLocationDto,
   UpdateScheduleNoteDto,
@@ -306,6 +307,7 @@ export class ScheduleService implements OnModuleInit {
     await this.ensureScheduleLessonShortcutStudyModeColumns(this.sequelize);
     await this.ensureScheduleHolidaySourceColumn(this.sequelize);
     await this.ensureScheduleLessonGenerationColumns(this.sequelize);
+    await this.ensureScheduleLessonRangeNameColumns(this.sequelize);
     await this.seedDefaultDictionaries();
   }
 
@@ -499,7 +501,7 @@ export class ScheduleService implements OnModuleInit {
           })
         : [],
       models.lessonRangeModel.findOne({
-        attributes: ['id', 'startDate', 'endDate'],
+        attributes: ['id', 'startDate', 'endDate', 'weekOneName', 'weekTwoName'],
         where: { key: 'DEFAULT' },
       }),
       models.holidayModel.findAll({
@@ -577,6 +579,22 @@ export class ScheduleService implements OnModuleInit {
       }
       throw error;
     }
+  }
+
+  async updateLessonRangeNames(dto: UpdateScheduleLessonRangeNamesDto) {
+    const models = await this.getScheduleModels();
+    const range = await models.lessonRangeModel.findOne({
+      where: { key: 'DEFAULT' },
+    });
+    if (!range) {
+      throw new NotFoundException('Najpierw zapisz zakres zajec.');
+    }
+
+    await range.update({
+      weekOneName: dto.weekOneName.trim(),
+      weekTwoName: dto.weekTwoName.trim(),
+    });
+    return range;
   }
 
   async previewLessonRange(dto: PreviewScheduleLessonRangeDto) {
@@ -1615,6 +1633,9 @@ export class ScheduleService implements OnModuleInit {
         [Op.between]: [filters.from ?? '0001-01-01', filters.to ?? '9999-12-31'],
       };
     }
+    if (filters.source) {
+      where.source = filters.source;
+    }
     if (filters.teacherId) {
       where.teacherId = filters.teacherId;
     }
@@ -2592,6 +2613,7 @@ export class ScheduleService implements OnModuleInit {
       await this.ensureScheduleLessonShortcutStudyModeColumns(scheduleDatabase);
       await this.ensureScheduleHolidaySourceColumn(scheduleDatabase);
       await this.ensureScheduleLessonGenerationColumns(scheduleDatabase);
+      await this.ensureScheduleLessonRangeNameColumns(scheduleDatabase);
     } finally {
       await scheduleDatabase.close();
     }
@@ -3462,6 +3484,14 @@ END $$;`,
     );
   }
 
+  private async ensureScheduleLessonRangeNameColumns(sequelize: Sequelize): Promise<void> {
+    await sequelize.query(
+      `ALTER TABLE "schedule_lesson_cycle_ranges"
+       ADD COLUMN IF NOT EXISTS "weekOneName" VARCHAR(60) NOT NULL DEFAULT 'Tydzie\u0144 1',
+       ADD COLUMN IF NOT EXISTS "weekTwoName" VARCHAR(60) NOT NULL DEFAULT 'Tydzie\u0144 2'`,
+    );
+  }
+
   private validateHolidayYear(year: number): void {
     if (!Number.isInteger(year) || year < 1900 || year > 2100) {
       throw new BadRequestException('Rok musi byc liczba od 1900 do 2100.');
@@ -3718,6 +3748,7 @@ END $$;`,
     await this.ensureScheduleLessonShortcutStudyModeColumns(sequelize);
     await this.ensureScheduleHolidaySourceColumn(sequelize);
     await this.ensureScheduleLessonGenerationColumns(sequelize);
+    await this.ensureScheduleLessonRangeNameColumns(sequelize);
     this.academicYearDatabases.set(databaseName, { sequelize, models });
     return models;
   }
@@ -3938,6 +3969,16 @@ END $$;`,
         },
         startDate: { type: DataTypes.DATEONLY, allowNull: false },
         endDate: { type: DataTypes.DATEONLY, allowNull: false },
+        weekOneName: {
+          type: DataTypes.STRING(60),
+          allowNull: false,
+          defaultValue: 'Tydzie\u0144 1',
+        },
+        weekTwoName: {
+          type: DataTypes.STRING(60),
+          allowNull: false,
+          defaultValue: 'Tydzie\u0144 2',
+        },
       },
       { tableName: 'schedule_lesson_cycle_ranges' },
     );
