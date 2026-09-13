@@ -325,6 +325,12 @@ export class ScheduleController {
     return this.scheduleService.findLessons(filters);
   }
 
+  @Get('lessons/date-range')
+  @ApiOperation({ summary: 'Get the earliest and latest lesson dates' })
+  findLessonDateRange() {
+    return this.scheduleService.findLessonDateRange();
+  }
+
   @Get('hour-count')
   @ApiOperation({ summary: 'Count lesson hours using schedule filters' })
   countLessonHours(@Query() query: Record<string, string>) {

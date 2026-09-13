@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { InjectConnection, InjectModel } from '@nestjs/sequelize';
-import { DataTypes, Op, QueryTypes, Transaction } from 'sequelize';
+import { col, DataTypes, fn, Op, QueryTypes, Transaction } from 'sequelize';
 import { Sequelize } from 'sequelize-typescript';
 import {
   CreateScheduleAcademicGroupDto,
@@ -1534,6 +1534,22 @@ export class ScheduleService implements OnModuleInit {
   async findLessons(filters: ScheduleLessonFilters = {}) {
     const models = await this.getScheduleModels();
     return this.findLessonsForModels(models, filters);
+  }
+
+  async findLessonDateRange() {
+    const models = await this.getScheduleModels();
+    const range = (await models.lessonModel.findOne({
+      attributes: [
+        [fn('MIN', col('date')), 'from'],
+        [fn('MAX', col('date')), 'to'],
+      ],
+      raw: true,
+    })) as unknown as { from: string | null; to: string | null } | null;
+
+    return {
+      from: range?.from ?? null,
+      to: range?.to ?? null,
+    };
   }
 
   async countLessonHours(filters: ScheduleLessonFilters = {}) {

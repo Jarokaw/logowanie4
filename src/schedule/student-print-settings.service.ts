@@ -6,6 +6,7 @@ import { ScheduleStudentPrintSettings } from './models/schedule-student-print-se
 import {
   PRINT_COLUMN_IDS,
   StudentPrintSettings,
+  StudentPrintColumnSetting,
   StudentPrintStudyMode,
   StudentPrintType
 } from './student-print-settings.types';
@@ -35,10 +36,15 @@ export class StudentPrintSettingsService {
       }
     }
 
+    const normalizedColumns = this.normalizeColumns(printType, columns);
+    if (settings?.columns && JSON.stringify(settings.columns) !== JSON.stringify(normalizedColumns)) {
+      await this.settingsModel.upsert({ userId, printType, studyMode, columns: normalizedColumns });
+    }
+
     return {
       printType,
       studyMode,
-      columns: columns ?? this.defaultColumns(printType)
+      columns: normalizedColumns
     };
   }
 
@@ -55,5 +61,24 @@ export class StudentPrintSettingsService {
 
   private defaultColumns(printType: StudentPrintType) {
     return PRINT_COLUMN_IDS[printType].map(id => ({ id, enabled: true }));
+  }
+
+  private normalizeColumns(
+    printType: StudentPrintType,
+    columns?: StudentPrintColumnSetting[]
+  ): StudentPrintColumnSetting[] {
+    if (!columns) return this.defaultColumns(printType);
+
+    const supportedIds = PRINT_COLUMN_IDS[printType];
+    const supportedIdSet = new Set(supportedIds);
+    const normalized = columns
+      .filter(column => supportedIdSet.has(column.id))
+      .map(({ id, enabled }) => ({ id, enabled }));
+    const configuredIds = new Set(normalized.map(column => column.id));
+
+    return [
+      ...normalized,
+      ...supportedIds.filter(id => !configuredIds.has(id)).map(id => ({ id, enabled: true }))
+    ];
   }
 }
