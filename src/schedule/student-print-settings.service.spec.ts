@@ -40,7 +40,7 @@ describe('StudentPrintSettingsService', () => {
     expect(legacyModel.findByPk).not.toHaveBeenCalled();
   });
 
-  it('returns the seven teacher columns enabled for a new teacher print scope', async () => {
+  it('returns the eight teacher columns enabled for a new teacher print scope', async () => {
     const result = await service.findForUser(
       'user-a',
       StudentPrintType.TEACHERS,
@@ -51,6 +51,7 @@ describe('StudentPrintSettingsService', () => {
       StudentPrintColumnId.DATE,
       StudentPrintColumnId.WEEKDAY,
       StudentPrintColumnId.TIME,
+      StudentPrintColumnId.COURSE,
       StudentPrintColumnId.SUBJECT,
       StudentPrintColumnId.CLASS_TYPE,
       StudentPrintColumnId.ROOM,
@@ -123,6 +124,7 @@ describe('StudentPrintSettingsService', () => {
       StudentPrintColumnId.DATE,
       StudentPrintColumnId.WEEKDAY,
       StudentPrintColumnId.TIME,
+      StudentPrintColumnId.COURSE,
       StudentPrintColumnId.SUBJECT,
       StudentPrintColumnId.CLASS_TYPE,
       StudentPrintColumnId.ROOM,

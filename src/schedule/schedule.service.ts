@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { InjectConnection, InjectModel } from '@nestjs/sequelize';
-import { col, DataTypes, fn, Op, QueryTypes, Transaction } from 'sequelize';
+import { col, DataTypes, fn, literal, Op, QueryTypes, Transaction } from 'sequelize';
 import { Sequelize } from 'sequelize-typescript';
 import {
   CreateScheduleAcademicGroupDto,
@@ -159,6 +159,14 @@ export type ClassTypeDeletionCheck = {
   canDelete: boolean;
 };
 export type ClassTypeLessonDeletionStrategy = 'DELETE' | 'REASSIGN_UNASSIGNED';
+export type NoteDeletionCheck = {
+  note: {
+    id: string;
+    text: string;
+    active: boolean;
+  };
+  lessonCount: number;
+};
 type ScheduleDatabaseModels = {
   subjectModel: any;
   teacherModel: any;
@@ -1536,6 +1544,33 @@ export class ScheduleService implements OnModuleInit {
     return this.findLessonsForModels(models, filters);
   }
 
+  async findLessonPage(filters: ScheduleLessonFilters = {}) {
+    const models = await this.getScheduleModels();
+    const where = await this.buildLessonFilterWhere(models, filters);
+    const pageSizeValue = Number.isFinite(filters.pageSize) ? filters.pageSize! : 100;
+    const pageValue = Number.isFinite(filters.page) ? filters.page! : 1;
+    const pageSize = Math.min(Math.max(Math.trunc(pageSizeValue), 1), 1000);
+    const requestedPage = Math.max(Math.trunc(pageValue), 1);
+    const totalItems = await models.lessonModel.count({ where });
+    const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+    const page = Math.min(requestedPage, totalPages);
+    const lessons = await models.lessonModel.findAll({
+      where,
+      include: this.lessonIncludes(models),
+      order: this.lessonPageOrder(filters),
+      limit: pageSize,
+      offset: (page - 1) * pageSize,
+    });
+
+    return {
+      items: lessons.map((lesson) => this.mapLesson(lesson)),
+      page,
+      pageSize,
+      totalItems,
+      totalPages,
+    };
+  }
+
   async findLessonDateRange() {
     const models = await this.getScheduleModels();
     const range = (await models.lessonModel.findOne({
@@ -1673,17 +1708,100 @@ export class ScheduleService implements OnModuleInit {
     } else if (filters.roomId) {
       where.roomId = filters.roomId;
     }
+    let matchingGroupIds: string[] | undefined;
     if (filters.groupId) {
-      const groupIds = includeGroupAncestors
+      matchingGroupIds = includeGroupAncestors
         ? Array.from(await this.getGroupConflictIds(models, filters.groupId))
         : await this.getGroupAndDescendantIds(models, filters.groupId);
-      where.groupId = { [Op.in]: groupIds };
+    }
+    if (filters.studyMode) {
+      const studyModeGroupIds = await this.getGroupIdsForStudyMode(
+        models,
+        filters.studyMode,
+      );
+      if (matchingGroupIds) {
+        const allowedIds = new Set(studyModeGroupIds);
+        matchingGroupIds = matchingGroupIds.filter((id) => allowedIds.has(id));
+      } else {
+        matchingGroupIds = studyModeGroupIds;
+      }
+    }
+    if (matchingGroupIds) {
+      where.groupId = { [Op.in]: matchingGroupIds };
     }
     if (filters.classTypeId) {
       where.classTypeId = filters.classTypeId;
     }
 
     return where;
+  }
+
+  private lessonPageOrder(filters: ScheduleLessonFilters): any[] {
+    const direction = filters.sortDirection === 'desc' ? 'DESC' : 'ASC';
+    const textDirection = `${direction} NULLS LAST`;
+    const stableOrder: any[] = [['id', 'ASC']];
+
+    switch (filters.sortField) {
+      case 'id':
+        return [
+          ['createdAt', direction],
+          ['id', direction],
+        ];
+      case 'date':
+        return [['date', direction], ['startHour', 'ASC'], ['startMinute', 'ASC'], ...stableOrder];
+      case 'start-time':
+        return [['startHour', direction], ['startMinute', direction], ['date', 'ASC'], ...stableOrder];
+      case 'end-time':
+        return [
+          [
+            literal(
+              '("ScheduleLesson"."startHour" * 60 + "ScheduleLesson"."startMinute" + "ScheduleLesson"."lessonHours" * 45)',
+            ),
+            direction,
+          ],
+          ['date', 'ASC'],
+          ...stableOrder,
+        ];
+      case 'teacher':
+        return [[col('teacher.lastName'), textDirection], ['date', 'ASC'], ...stableOrder];
+      case 'subject':
+        return [[col('subject.name'), textDirection], ['date', 'ASC'], ...stableOrder];
+      case 'room':
+        return [[col('room.name'), textDirection], ['date', 'ASC'], ...stableOrder];
+      case 'group':
+        return [[col('group.name'), textDirection], ['date', 'ASC'], ...stableOrder];
+      case 'class-type':
+        return [[col('classType.name'), textDirection], ['date', 'ASC'], ...stableOrder];
+      case 'note':
+        return [[col('note.text'), textDirection], ['date', 'ASC'], ...stableOrder];
+      default:
+        return [['date', 'ASC'], ['startHour', 'ASC'], ['startMinute', 'ASC'], ...stableOrder];
+    }
+  }
+
+  private async getGroupIdsForStudyMode(
+    models: ScheduleDatabaseModels,
+    studyMode: ScheduleStudyMode,
+  ): Promise<string[]> {
+    const groups: any[] = await models.groupModel.findAll({ where: { active: true } });
+    const groupsById = new Map<string, any>(groups.map((group) => [group.id, group]));
+
+    return groups
+      .filter((group) => {
+        let current = group;
+        const visitedIds = new Set<string>();
+
+        while (current && !visitedIds.has(current.id)) {
+          if (current.level === ScheduleGroupLevel.COURSE) {
+            return current.studyMode === studyMode;
+          }
+          visitedIds.add(current.id);
+          current = current.parentId ? groupsById.get(current.parentId) : undefined;
+        }
+
+        return false;
+      })
+      .map((group) => group.id);
   }
 
   async createSubject(dto: CreateScheduleSubjectDto) {
@@ -1955,6 +2073,38 @@ export class ScheduleService implements OnModuleInit {
     await this.validateUniqueNoteText(models, dto.text ?? note.text, id);
     await note.update(dto);
     return note;
+  }
+
+  async getNoteDeletionCheck(id: string): Promise<NoteDeletionCheck> {
+    const models = await this.getScheduleModels();
+    return this.buildNoteDeletionCheck(models, id);
+  }
+
+  async deleteNote(id: string) {
+    const models = await this.getScheduleModels();
+    await this.buildNoteDeletionCheck(models, id);
+
+    const transaction = await models.noteModel.sequelize.transaction();
+    try {
+      const [detachedLessons] = await models.lessonModel.update(
+        { noteId: null },
+        { where: { noteId: id }, transaction },
+      );
+      const [deletedNotes] = await models.noteModel.update(
+        { active: false },
+        { where: { id, active: true }, transaction },
+      );
+
+      if (deletedNotes === 0) {
+        throw new NotFoundException('Nie znaleziono uwagi.');
+      }
+
+      await transaction.commit();
+      return { deleted: true, id, detachedLessons };
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
   }
 
   async createLocation(dto: CreateScheduleLocationDto) {
@@ -2510,6 +2660,24 @@ export class ScheduleService implements OnModuleInit {
       classType: classType.get({ plain: true }),
       lessonCount,
       canDelete: lessonCount === 0,
+    };
+  }
+
+  private async buildNoteDeletionCheck(
+    models: ScheduleDatabaseModels,
+    id: string,
+  ): Promise<NoteDeletionCheck> {
+    const note = await models.noteModel.findOne({
+      where: { id, active: true },
+    });
+    if (!note) {
+      throw new NotFoundException('Nie znaleziono uwagi.');
+    }
+
+    const lessonCount = await models.lessonModel.count({ where: { noteId: id } });
+    return {
+      note: note.get({ plain: true }),
+      lessonCount,
     };
   }
 

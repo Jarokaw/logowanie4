@@ -55,6 +55,7 @@ export const PRINT_COLUMN_IDS: Record<StudentPrintType, StudentPrintColumnId[]> 
     StudentPrintColumnId.DATE,
     StudentPrintColumnId.WEEKDAY,
     StudentPrintColumnId.TIME,
+    StudentPrintColumnId.COURSE,
     StudentPrintColumnId.SUBJECT,
     StudentPrintColumnId.CLASS_TYPE,
     StudentPrintColumnId.ROOM,

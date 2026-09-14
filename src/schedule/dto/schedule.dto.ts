@@ -610,6 +610,7 @@ export interface ScheduleLessonFilters {
   from?: string;
   to?: string;
   source?: 'MANUAL' | 'LESSON_RANGE';
+  studyMode?: ScheduleStudyMode;
   teacherId?: string;
   subjectId?: string;
   buildingId?: string;
@@ -617,5 +618,24 @@ export interface ScheduleLessonFilters {
   groupId?: string;
   classTypeId?: string;
   creationOrder?: 'asc' | 'desc';
+  sortField?: ScheduleLessonSortField;
+  sortDirection?: 'asc' | 'desc';
+  page?: number;
+  pageSize?: number;
   limit?: number;
 }
+
+export const SCHEDULE_LESSON_SORT_FIELDS = [
+  'class-type',
+  'date',
+  'end-time',
+  'group',
+  'id',
+  'note',
+  'room',
+  'start-time',
+  'subject',
+  'teacher',
+] as const;
+
+export type ScheduleLessonSortField = (typeof SCHEDULE_LESSON_SORT_FIELDS)[number];

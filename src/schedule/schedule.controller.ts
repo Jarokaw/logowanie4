@@ -34,6 +34,7 @@ import {
   ImportScheduleAcademicYearBackupDto,
   PreviewScheduleLessonRangeDto,
   ReorderScheduleLessonTimeShortcutsDto,
+  SCHEDULE_LESSON_SORT_FIELDS,
   ScheduleLessonFilters,
   TransferScheduleAcademicYearDataDto,
   UpdateScheduleAcademicGroupDto,
@@ -49,6 +50,7 @@ import {
   UpdateScheduleSubjectDto,
   UpdateScheduleTeacherDto,
 } from './dto/schedule.dto';
+import { ScheduleStudyMode } from './models/schedule-academic-group.model';
 import { ScheduleService } from './schedule.service';
 
 @Controller('schedule')
@@ -303,13 +305,39 @@ export class ScheduleController {
   @Get('lessons')
   @ApiOperation({ summary: 'Get filtered lessons' })
   findLessons(@Query() query: Record<string, string>) {
-    const filters: ScheduleLessonFilters = {
+    return this.scheduleService.findLessons(this.lessonFiltersFromQuery(query));
+  }
+
+  @Get('lessons/page')
+  @ApiOperation({ summary: 'Get a filtered and sorted page of lessons' })
+  findLessonPage(@Query() query: Record<string, string>) {
+    return this.scheduleService.findLessonPage(this.lessonFiltersFromQuery(query));
+  }
+
+  @Get('lessons/date-range')
+  @ApiOperation({ summary: 'Get the earliest and latest lesson dates' })
+  findLessonDateRange() {
+    return this.scheduleService.findLessonDateRange();
+  }
+
+  private lessonFiltersFromQuery(query: Record<string, string>): ScheduleLessonFilters {
+    const studyMode = Object.values(ScheduleStudyMode).includes(
+      query.studyMode as ScheduleStudyMode,
+    )
+      ? (query.studyMode as ScheduleStudyMode)
+      : undefined;
+    const sortField = SCHEDULE_LESSON_SORT_FIELDS.find(
+      (field) => field === query.sortField,
+    );
+
+    return {
       from: query.from,
       to: query.to,
       source:
         query.source === 'MANUAL' || query.source === 'LESSON_RANGE'
           ? query.source
           : undefined,
+      studyMode,
       teacherId: query.teacherId,
       subjectId: query.subjectId,
       buildingId: query.buildingId,
@@ -320,15 +348,20 @@ export class ScheduleController {
         query.creationOrder === 'asc' || query.creationOrder === 'desc'
           ? query.creationOrder
           : undefined,
-      limit: query.limit ? Number(query.limit) : undefined,
+      sortField,
+      sortDirection:
+        query.sortDirection === 'asc' || query.sortDirection === 'desc'
+          ? query.sortDirection
+          : undefined,
+      page: this.parsePositiveInteger(query.page),
+      pageSize: this.parsePositiveInteger(query.pageSize),
+      limit: this.parsePositiveInteger(query.limit),
     };
-    return this.scheduleService.findLessons(filters);
   }
 
-  @Get('lessons/date-range')
-  @ApiOperation({ summary: 'Get the earliest and latest lesson dates' })
-  findLessonDateRange() {
-    return this.scheduleService.findLessonDateRange();
+  private parsePositiveInteger(value?: string): number | undefined {
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
   }
 
   @Get('hour-count')
@@ -449,6 +482,16 @@ export class ScheduleController {
   @Patch('notes/:id')
   patchNote(@Param('id') id: string, @Body() dto: UpdateScheduleNoteDto) {
     return this.scheduleService.updateNote(id, dto);
+  }
+
+  @Get('notes/:id/deletion-check')
+  getNoteDeletionCheck(@Param('id') id: string) {
+    return this.scheduleService.getNoteDeletionCheck(id);
+  }
+
+  @Delete('notes/:id')
+  deleteNote(@Param('id') id: string) {
+    return this.scheduleService.deleteNote(id);
   }
 
   @Post('locations')
