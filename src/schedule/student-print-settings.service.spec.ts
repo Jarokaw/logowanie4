@@ -40,7 +40,7 @@ describe('StudentPrintSettingsService', () => {
     expect(legacyModel.findByPk).not.toHaveBeenCalled();
   });
 
-  it('returns the eight teacher columns enabled for a new teacher print scope', async () => {
+  it('returns all teacher columns enabled for a new teacher print scope', async () => {
     const result = await service.findForUser(
       'user-a',
       StudentPrintType.TEACHERS,
@@ -55,7 +55,8 @@ describe('StudentPrintSettingsService', () => {
       StudentPrintColumnId.SUBJECT,
       StudentPrintColumnId.CLASS_TYPE,
       StudentPrintColumnId.ROOM,
-      StudentPrintColumnId.GROUP
+      StudentPrintColumnId.GROUP,
+      StudentPrintColumnId.NOTE
     ]);
     expect(result.columns.every(column => column.enabled)).toBe(true);
     expect(legacyModel.findByPk).not.toHaveBeenCalled();
@@ -128,7 +129,8 @@ describe('StudentPrintSettingsService', () => {
       StudentPrintColumnId.SUBJECT,
       StudentPrintColumnId.CLASS_TYPE,
       StudentPrintColumnId.ROOM,
-      StudentPrintColumnId.GROUP
+      StudentPrintColumnId.GROUP,
+      StudentPrintColumnId.NOTE
     ].map(id => ({ id, enabled: id !== StudentPrintColumnId.GROUP }));
 
     await service.saveForUser('user-a', {

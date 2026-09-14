@@ -8,6 +8,7 @@ export enum StudentPrintColumnId {
   GROUP = 'group',
   SUBJECT = 'subject',
   CLASS_TYPE = 'classType',
+  NOTE = 'note',
   TEACHER = 'teacher',
   ROOM = 'room',
   STUDY_MODE = 'studyMode'
@@ -59,7 +60,8 @@ export const PRINT_COLUMN_IDS: Record<StudentPrintType, StudentPrintColumnId[]> 
     StudentPrintColumnId.SUBJECT,
     StudentPrintColumnId.CLASS_TYPE,
     StudentPrintColumnId.ROOM,
-    StudentPrintColumnId.GROUP
+    StudentPrintColumnId.GROUP,
+    StudentPrintColumnId.NOTE
   ],
   [StudentPrintType.ROOMS]: [
     StudentPrintColumnId.DATE,

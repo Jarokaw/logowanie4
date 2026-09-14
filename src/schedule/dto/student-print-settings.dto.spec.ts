@@ -42,7 +42,8 @@ describe('Student PDF column settings validation', () => {
       StudentPrintColumnId.SUBJECT,
       StudentPrintColumnId.CLASS_TYPE,
       StudentPrintColumnId.ROOM,
-      StudentPrintColumnId.GROUP
+      StudentPrintColumnId.GROUP,
+      StudentPrintColumnId.NOTE
     ].map(id => ({ id, enabled: true }));
 
     expect(
@@ -76,7 +77,8 @@ describe('Student PDF column settings validation', () => {
         StudentPrintColumnId.SUBJECT,
         StudentPrintColumnId.CLASS_TYPE,
         StudentPrintColumnId.ROOM,
-        StudentPrintColumnId.GROUP
+        StudentPrintColumnId.GROUP,
+        StudentPrintColumnId.NOTE
       ].includes(column.id)
     );
 
