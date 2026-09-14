@@ -62,6 +62,37 @@ describe('StudentPrintSettingsService', () => {
     expect(legacyModel.findByPk).not.toHaveBeenCalled();
   });
 
+  it('adds the note column to a teacher layout saved before that column existed', async () => {
+    const previousColumns = [
+      StudentPrintColumnId.DATE,
+      StudentPrintColumnId.WEEKDAY,
+      StudentPrintColumnId.TIME,
+      StudentPrintColumnId.COURSE,
+      StudentPrintColumnId.SUBJECT,
+      StudentPrintColumnId.CLASS_TYPE,
+      StudentPrintColumnId.ROOM,
+      StudentPrintColumnId.GROUP,
+    ].map(id => ({ id, enabled: id !== StudentPrintColumnId.GROUP }));
+    settingsModel.findOne.mockResolvedValue({ columns: previousColumns });
+
+    const result = await service.findForUser(
+      'user-a',
+      StudentPrintType.TEACHERS,
+      StudentPrintStudyMode.FULL_TIME,
+    );
+
+    expect(result.columns).toEqual([
+      ...previousColumns,
+      { id: StudentPrintColumnId.NOTE, enabled: true },
+    ]);
+    expect(settingsModel.upsert).toHaveBeenCalledWith({
+      userId: 'user-a',
+      printType: StudentPrintType.TEACHERS,
+      studyMode: StudentPrintStudyMode.FULL_TIME,
+      columns: result.columns,
+    });
+  });
+
   it('returns the room columns enabled in one shared scope', async () => {
     const result = await service.findForUser(
       'user-a',
