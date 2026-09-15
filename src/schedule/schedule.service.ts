@@ -1609,7 +1609,7 @@ export class ScheduleService implements OnModuleInit {
 
   async findStudentDictionaries() {
     const models = await this.getStudentScheduleModels();
-    const [groups, teachers] = await Promise.all([
+    const [groups, teachers, lessonRange, holidays] = await Promise.all([
       models.groupModel.findAll({
         where: { active: true },
         order: [['name', 'ASC']],
@@ -1619,6 +1619,17 @@ export class ScheduleService implements OnModuleInit {
         order: [
           ['lastName', 'ASC'],
           ['firstName', 'ASC'],
+        ],
+      }),
+      models.lessonRangeModel.findOne({
+        attributes: ['id', 'startDate', 'endDate', 'weekOneName', 'weekTwoName'],
+        where: { key: 'DEFAULT' },
+      }),
+      models.holidayModel.findAll({
+        attributes: ['id', 'date', 'name', 'source'],
+        order: [
+          ['date', 'ASC'],
+          ['name', 'ASC'],
         ],
       }),
     ]);
@@ -1638,6 +1649,8 @@ export class ScheduleService implements OnModuleInit {
       groups,
       teachers: teachers.map((teacher) => this.mapTeacher(teacher)),
       studyModes,
+      lessonRange,
+      holidays,
     };
   }
 
