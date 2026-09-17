@@ -1611,7 +1611,10 @@ export class ScheduleService implements OnModuleInit {
     };
   }
 
-  async countLessonHours(filters: ScheduleLessonFilters = {}) {
+  async countLessonHours(
+    filters: ScheduleLessonFilters = {},
+    includeLessons = false,
+  ) {
     if (filters.from && filters.to && filters.from > filters.to) {
       throw new BadRequestException('Data początkowa nie może być późniejsza niż data końcowa.');
     }
@@ -1640,15 +1643,32 @@ export class ScheduleService implements OnModuleInit {
       (sum, aggregate) => sum + Number(aggregate.lessonHours),
       0,
     );
-    const breakdown = lessonCount
-      ? await this.buildLessonHourCountBreakdown(models, aggregates)
-      : [];
+    const breakdown =
+      lessonCount && !includeLessons
+        ? await this.buildLessonHourCountBreakdown(models, aggregates)
+        : [];
+    const lessons =
+      lessonCount && includeLessons
+        ? (
+            await models.lessonModel.findAll({
+              where,
+              include: this.lessonIncludes(models),
+              order: [
+                ['date', 'ASC'],
+                ['startHour', 'ASC'],
+                ['startMinute', 'ASC'],
+                ['id', 'ASC'],
+              ],
+            })
+          ).map((lesson) => this.mapLesson(lesson))
+        : [];
 
     return {
       lessonHours,
       lessonCount,
       minutes: lessonHours * 45,
       breakdown,
+      lessons,
     };
   }
 

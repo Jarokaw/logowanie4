@@ -380,7 +380,7 @@ export class ScheduleController {
       groupId: query.groupId,
       classTypeId: query.classTypeId,
     };
-    return this.scheduleService.countLessonHours(filters);
+    return this.scheduleService.countLessonHours(filters, query.includeLessons === 'true');
   }
 
   @Get('lessons/:id')
