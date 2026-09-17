@@ -321,11 +321,7 @@ export class ScheduleController {
   }
 
   private lessonFiltersFromQuery(query: Record<string, string>): ScheduleLessonFilters {
-    const studyMode = Object.values(ScheduleStudyMode).includes(
-      query.studyMode as ScheduleStudyMode,
-    )
-      ? (query.studyMode as ScheduleStudyMode)
-      : undefined;
+    const studyMode = this.parseStudyMode(query.studyMode);
     const sortField = SCHEDULE_LESSON_SORT_FIELDS.find(
       (field) => field === query.sortField,
     );
@@ -364,12 +360,19 @@ export class ScheduleController {
     return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
   }
 
+  private parseStudyMode(value?: string): ScheduleStudyMode | undefined {
+    return Object.values(ScheduleStudyMode).includes(value as ScheduleStudyMode)
+      ? (value as ScheduleStudyMode)
+      : undefined;
+  }
+
   @Get('hour-count')
   @ApiOperation({ summary: 'Count lesson hours using schedule filters' })
   countLessonHours(@Query() query: Record<string, string>) {
     const filters: ScheduleLessonFilters = {
       from: query.from,
       to: query.to,
+      studyMode: this.parseStudyMode(query.studyMode),
       teacherId: query.teacherId,
       subjectId: query.subjectId,
       buildingId: query.buildingId,

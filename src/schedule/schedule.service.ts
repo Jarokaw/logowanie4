@@ -167,6 +167,30 @@ export type NoteDeletionCheck = {
   };
   lessonCount: number;
 };
+type ScheduleHourCountBreakdownCategory =
+  | ScheduleGroupLevel
+  | 'BUILDING'
+  | 'ROOM'
+  | 'TEACHER'
+  | 'SUBJECT'
+  | 'CLASS_TYPE';
+type ScheduleHourCountAggregate = {
+  teacherId: string;
+  subjectId: string;
+  roomId: string;
+  groupId: string;
+  classTypeId: string;
+  lessonCount: number | string;
+  lessonHours: number | string;
+};
+type ScheduleHourCountBreakdownItem = {
+  category: ScheduleHourCountBreakdownCategory;
+  id: string;
+  name: string;
+  context: string;
+  lessonCount: number;
+  lessonHours: number;
+};
 type ScheduleDatabaseModels = {
   subjectModel: any;
   teacherModel: any;
@@ -1594,17 +1618,216 @@ export class ScheduleService implements OnModuleInit {
 
     const models = await this.getScheduleModels();
     const where = await this.buildLessonFilterWhere(models, filters, true);
-    const [lessonCount, lessonHoursValue] = await Promise.all([
-      models.lessonModel.count({ where }),
-      models.lessonModel.sum('lessonHours', { where }),
-    ]);
-    const lessonHours = Number(lessonHoursValue ?? 0);
+    const aggregates = (await models.lessonModel.findAll({
+      attributes: [
+        'teacherId',
+        'subjectId',
+        'roomId',
+        'groupId',
+        'classTypeId',
+        [fn('COUNT', col('id')), 'lessonCount'],
+        [fn('SUM', col('lessonHours')), 'lessonHours'],
+      ],
+      where,
+      group: ['teacherId', 'subjectId', 'roomId', 'groupId', 'classTypeId'],
+      raw: true,
+    })) as ScheduleHourCountAggregate[];
+    const lessonCount = aggregates.reduce(
+      (sum, aggregate) => sum + Number(aggregate.lessonCount),
+      0,
+    );
+    const lessonHours = aggregates.reduce(
+      (sum, aggregate) => sum + Number(aggregate.lessonHours),
+      0,
+    );
+    const breakdown = lessonCount
+      ? await this.buildLessonHourCountBreakdown(models, aggregates)
+      : [];
 
     return {
       lessonHours,
       lessonCount,
       minutes: lessonHours * 45,
+      breakdown,
     };
+  }
+
+  private async buildLessonHourCountBreakdown(
+    models: ScheduleDatabaseModels,
+    aggregates: ScheduleHourCountAggregate[],
+  ): Promise<ScheduleHourCountBreakdownItem[]> {
+    const [groups, locations, teachers, subjects, classTypes] = (await Promise.all([
+      models.groupModel.findAll({
+        attributes: ['id', 'name', 'level', 'parentId'],
+        raw: true,
+      }),
+      models.locationModel.findAll({
+        attributes: ['id', 'name', 'type', 'parentId'],
+        raw: true,
+      }),
+      models.teacherModel.findAll({
+        attributes: ['id', 'title', 'firstName', 'lastName'],
+        raw: true,
+      }),
+      models.subjectModel.findAll({ attributes: ['id', 'name'], raw: true }),
+      models.classTypeModel.findAll({ attributes: ['id', 'name'], raw: true }),
+    ])) as [any[], any[], any[], any[], any[]];
+
+    const groupsById = new Map<string, any>(groups.map((group) => [group.id, group]));
+    const locationsById = new Map<string, any>(
+      locations.map((location) => [location.id, location]),
+    );
+    const teachersById = new Map<string, any>(
+      teachers.map((teacher) => [teacher.id, teacher]),
+    );
+    const subjectsById = new Map<string, any>(
+      subjects.map((subject) => [subject.id, subject]),
+    );
+    const classTypesById = new Map<string, any>(
+      classTypes.map((classType) => [classType.id, classType]),
+    );
+    const groupPathCache = new Map<string, any[]>();
+    const breakdownByKey = new Map<string, ScheduleHourCountBreakdownItem>();
+
+    const groupPath = (groupId: string): any[] => {
+      const cachedPath = groupPathCache.get(groupId);
+      if (cachedPath) {
+        return cachedPath;
+      }
+
+      const path: any[] = [];
+      const visitedIds = new Set<string>();
+      let current = groupsById.get(groupId);
+      while (current && !visitedIds.has(current.id)) {
+        path.unshift(current);
+        visitedIds.add(current.id);
+        current = current.parentId ? groupsById.get(current.parentId) : undefined;
+      }
+      groupPathCache.set(groupId, path);
+      return path;
+    };
+
+    const addBreakdown = (
+      category: ScheduleHourCountBreakdownCategory,
+      id: string,
+      name: string,
+      context: string,
+      lessonCount: number,
+      lessonHours: number,
+    ): void => {
+      const key = `${category}:${id}`;
+      const existing = breakdownByKey.get(key);
+      if (existing) {
+        existing.lessonCount += lessonCount;
+        existing.lessonHours += lessonHours;
+        return;
+      }
+      breakdownByKey.set(key, {
+        category,
+        id,
+        name,
+        context,
+        lessonCount,
+        lessonHours,
+      });
+    };
+
+    for (const aggregate of aggregates) {
+      const lessonCount = Number(aggregate.lessonCount);
+      const lessonHours = Number(aggregate.lessonHours);
+      const academicPath = groupPath(aggregate.groupId);
+      academicPath.forEach((group, index) => {
+        addBreakdown(
+          group.level as ScheduleGroupLevel,
+          group.id,
+          group.name,
+          academicPath
+            .slice(0, index)
+            .map((ancestor) => ancestor.name)
+            .join(' / '),
+          lessonCount,
+          lessonHours,
+        );
+      });
+
+      const room = locationsById.get(aggregate.roomId);
+      const building = room?.parentId ? locationsById.get(room.parentId) : undefined;
+      if (building) {
+        addBreakdown(
+          'BUILDING',
+          building.id,
+          building.name,
+          '',
+          lessonCount,
+          lessonHours,
+        );
+      }
+      if (room) {
+        addBreakdown(
+          'ROOM',
+          room.id,
+          room.name,
+          building?.name ?? '',
+          lessonCount,
+          lessonHours,
+        );
+      }
+
+      const teacher = teachersById.get(aggregate.teacherId);
+      if (teacher) {
+        addBreakdown(
+          'TEACHER',
+          teacher.id,
+          [teacher.title, teacher.firstName, teacher.lastName].filter(Boolean).join(' '),
+          '',
+          lessonCount,
+          lessonHours,
+        );
+      }
+
+      const subject = subjectsById.get(aggregate.subjectId);
+      if (subject) {
+        addBreakdown(
+          'SUBJECT',
+          subject.id,
+          subject.name,
+          '',
+          lessonCount,
+          lessonHours,
+        );
+      }
+
+      const classType = classTypesById.get(aggregate.classTypeId);
+      if (classType) {
+        addBreakdown(
+          'CLASS_TYPE',
+          classType.id,
+          classType.name,
+          '',
+          lessonCount,
+          lessonHours,
+        );
+      }
+    }
+
+    const categoryOrder: Record<ScheduleHourCountBreakdownCategory, number> = {
+      COURSE: 0,
+      SPECIALIZATION: 1,
+      GROUP: 2,
+      WORKSHOP: 3,
+      BUILDING: 4,
+      ROOM: 5,
+      TEACHER: 6,
+      SUBJECT: 7,
+      CLASS_TYPE: 8,
+    };
+
+    return [...breakdownByKey.values()].sort(
+      (first, second) =>
+        categoryOrder[first.category] - categoryOrder[second.category] ||
+        first.context.localeCompare(second.context, 'pl', { sensitivity: 'base' }) ||
+        first.name.localeCompare(second.name, 'pl', { sensitivity: 'base' }),
+    );
   }
 
   async findStudentDictionaries() {
