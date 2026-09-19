@@ -72,6 +72,7 @@ export const PRINT_COLUMN_IDS: Record<StudentPrintType, StudentPrintColumnId[]> 
     StudentPrintColumnId.COURSE,
     StudentPrintColumnId.GROUP,
     StudentPrintColumnId.SUBJECT,
-    StudentPrintColumnId.TEACHER
+    StudentPrintColumnId.TEACHER,
+    StudentPrintColumnId.NOTE
   ]
 };

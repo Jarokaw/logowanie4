@@ -104,6 +104,30 @@ describe('StudentPrintSettingsService', () => {
     expect(result.columns.every(column => column.enabled)).toBe(true);
   });
 
+  it('adds the note column to a room layout saved before that column existed', async () => {
+    const previousColumns = PRINT_COLUMN_IDS[StudentPrintType.ROOMS]
+      .filter(id => id !== StudentPrintColumnId.NOTE)
+      .map(id => ({ id, enabled: id !== StudentPrintColumnId.GROUP }));
+    settingsModel.findOne.mockResolvedValue({ columns: previousColumns });
+
+    const result = await service.findForUser(
+      'user-a',
+      StudentPrintType.ROOMS,
+      StudentPrintStudyMode.ALL_STUDY_MODES,
+    );
+
+    expect(result.columns).toEqual([
+      ...previousColumns,
+      { id: StudentPrintColumnId.NOTE, enabled: true },
+    ]);
+    expect(settingsModel.upsert).toHaveBeenCalledWith({
+      userId: 'user-a',
+      printType: StudentPrintType.ROOMS,
+      studyMode: StudentPrintStudyMode.ALL_STUDY_MODES,
+      columns: result.columns,
+    });
+  });
+
   it('restores the order and disabled states saved for the selected study mode', async () => {
     const columns = PRINT_COLUMN_IDS[StudentPrintType.STUDENTS]
       .reverse()
